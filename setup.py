@@ -14,5 +14,6 @@ setup(
         'numpy'
     ],
     tests_require=[
+        'pytest'
     ]
 )
