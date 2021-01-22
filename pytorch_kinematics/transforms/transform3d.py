@@ -135,10 +135,12 @@ class Transform3d:
     """
 
     def __init__(
-        self,
-        dtype: torch.dtype = torch.float32,
-        device="cpu",
-        matrix: Optional[torch.Tensor] = None,
+            self,
+            dtype: torch.dtype = torch.float32,
+            device="cpu",
+            matrix: Optional[torch.Tensor] = None,
+            rot: Optional[torch.Tensor] = None,
+            pos: Optional[torch.Tensor] = None,
     ):
         """
         Args:
@@ -165,9 +167,20 @@ class Transform3d:
             device = matrix.device
             self._matrix = matrix.view(-1, 4, 4)
 
+        if pos is not None:
+            if not torch.is_tensor(pos):
+                pos = torch.tensor(pos, dtype=dtype, device=device)
+            self._matrix[:, :3, 3] = pos
+
+        if rot is not None:
+            if not torch.is_tensor(rot):
+                rot = torch.tensor(rot, dtype=dtype, device=device)
+            self._matrix[:, :3, :3] = rot
+
         self._transforms = []  # store transforms to compose
         self._lu = None
         self.device = device
+        self.dtype = self._matrix.dtype
 
     def __len__(self):
         return self.get_matrix().shape[0]
@@ -489,7 +502,7 @@ class Scale(Transform3d):
 
 class Rotate(Transform3d):
     def __init__(
-        self, R, dtype=torch.float32, device: str = "cpu", orthogonal_tol: float = 1e-5
+            self, R, dtype=torch.float32, device: str = "cpu", orthogonal_tol: float = 1e-5
     ):
         """
         Create a new Transform3d representing 3D rotation using a rotation
@@ -523,12 +536,12 @@ class Rotate(Transform3d):
 
 class RotateAxisAngle(Rotate):
     def __init__(
-        self,
-        angle,
-        axis: str = "X",
-        degrees: bool = True,
-        dtype=torch.float64,
-        device: str = "cpu",
+            self,
+            angle,
+            axis: str = "X",
+            degrees: bool = True,
+            dtype=torch.float64,
+            device: str = "cpu",
     ):
         """
         Create a new Transform3d representing 3D rotation about an axis
