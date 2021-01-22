@@ -6,7 +6,7 @@ from typing import Optional
 
 import torch
 
-from .rotation_conversions import _axis_angle_rotation
+from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix
 
 
 class Transform3d:
@@ -137,7 +137,7 @@ class Transform3d:
     def __init__(
             self,
             dtype: torch.dtype = torch.float32,
-            device="cpu",
+            device='cpu',
             matrix: Optional[torch.Tensor] = None,
             rot: Optional[torch.Tensor] = None,
             pos: Optional[torch.Tensor] = None,
@@ -175,6 +175,8 @@ class Transform3d:
         if rot is not None:
             if not torch.is_tensor(rot):
                 rot = torch.tensor(rot, dtype=dtype, device=device)
+            if rot.shape[-1] is 4:
+                rot = quaternion_to_matrix(rot)
             self._matrix[:, :3, :3] = rot
 
         self._transforms = []  # store transforms to compose
@@ -184,6 +186,12 @@ class Transform3d:
 
     def __len__(self):
         return self.get_matrix().shape[0]
+
+    def __repr__(self):
+        m = self.get_matrix()
+        pos = m[:, :3, 3]
+        rot = matrix_to_quaternion(m[:, :3, :3])
+        return "Transform3d(rot={}, pos={})".format(rot, pos).replace('\n       ', '')
 
     def compose(self, *others):
         """
