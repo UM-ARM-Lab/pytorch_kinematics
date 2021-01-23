@@ -4,6 +4,17 @@ from . import ik
 import pytorch_kinematics.transforms as tf
 
 
+def ensure_2d_tensor(th, dtype, device):
+    if not torch.is_tensor(th):
+        th = torch.tensor(th, dtype=dtype, device=device)
+    if len(th.shape) <= 1:
+        N = 1
+        th = th.view(1, -1)
+    else:
+        N = th.shape[0]
+    return th, N
+
+
 class Chain(object):
     def __init__(self, root_frame, dtype=torch.float32, device="cpu"):
         self._root = root_frame
@@ -65,8 +76,11 @@ class Chain(object):
     @staticmethod
     def _forward_kinematics(root, th_dict, world=tf.Transform3d()):
         link_transforms = {}
-        trans = world.compose(root.get_transform(th_dict.get(root.joint.name, 0.0)))
-        link_transforms[root.link.name] = trans * root.link.offset
+
+        th, N = ensure_2d_tensor(th_dict.get(root.joint.name, 0.0), world.dtype, world.device)
+
+        trans = world.compose(root.get_transform(th.view(N, 1)))
+        link_transforms[root.link.name] = trans.compose(root.link.offset)
         for child in root.children:
             link_transforms.update(Chain._forward_kinematics(child, th_dict, trans))
         return link_transforms
@@ -124,13 +138,7 @@ class SerialChain(Chain):
         return names
 
     def forward_kinematics(self, th, world=tf.Transform3d(), end_only=True):
-        if not torch.is_tensor(th):
-            th = torch.tensor(th, dtype=world.dtype, device=world.device)
-        if len(th.shape) is 1:
-            N = 1
-            th = th.view(1, -1)
-        else:
-            N = th.shape[0]
+        th, N = ensure_2d_tensor(th, world.dtype, world.device)
 
         cnt = 0
         link_transforms = {}

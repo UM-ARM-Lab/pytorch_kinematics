@@ -1,3 +1,5 @@
+import math
+
 import torch
 import pytorch_kinematics as pk
 
@@ -40,8 +42,22 @@ def test_fkik():
         assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
 
-# TODO test robot with prismatic and fixed joints
+# test robot with prismatic and fixed joints
+def test_fk_simple_arm():
+    chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+    # print(chain)
+    # print(chain.get_joint_parameter_names())
+    ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
+    tg = ret['arm_wrist_roll']
+    m = tg.get_matrix()
+    pos = m[:, :3, 3]
+    rot = pk.matrix_to_quaternion(m[:, :3, :3])
+    assert torch.allclose(rot, torch.tensor([0.70710678, 0., 0., 0.70710678]))
+    assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5]))
+
+
 # TODO test more complex robot
 
 if __name__ == "__main__":
     test_fkik()
+    test_fk_simple_arm()
