@@ -25,13 +25,23 @@ def test_fkik():
     pos = m[:, :3, 3]
     rot = pk.matrix_to_quaternion(m[:, :3, :3])
     assert torch.allclose(pos, torch.tensor([[1.91081784, 0.41280851, 0.0000]]))
-    assert torch.allclose(rot, torch.tensor([[0.95521418, 0.0000, 0.0000,  0.2959153]]))
+    assert torch.allclose(rot, torch.tensor([[0.95521418, 0.0000, 0.0000, 0.2959153]]))
     print(tg)
-    # TODO test batch kinematics
     # TODO implement and test inverse kinematics
     # th2 = chain.inverse_kinematics(tg)
     # self.assertTrue(np.allclose(th1, th2, atol=1.0e-6))
+    # test batch kinematics
+    N = 20
+    th_batch = torch.rand(N, 2)
+    tg_batch = chain.forward_kinematics(th_batch)
+    m = tg_batch.get_matrix()
+    for i in range(N):
+        tg = chain.forward_kinematics(th_batch[i])
+        assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
+
+# TODO test robot with prismatic and fixed joints
+# TODO test more complex robot
 
 if __name__ == "__main__":
     test_fkik()

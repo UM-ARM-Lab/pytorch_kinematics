@@ -80,7 +80,7 @@ class Frame(object):
         elif self.joint.joint_type == 'prismatic':
             t = tf.Transform3d(pos=theta * self.joint.axis)
         elif self.joint.joint_type == 'fixed':
-            t = tf.Transform3d()
+            t = tf.Transform3d(default_batch_size=theta.shape[0])
         else:
             raise ValueError("Unsupported joint type %s." % self.joint.joint_type)
         return self.joint.offset.compose(t)

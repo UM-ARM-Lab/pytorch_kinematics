@@ -136,6 +136,7 @@ class Transform3d:
 
     def __init__(
             self,
+            default_batch_size=1,
             dtype: torch.dtype = torch.float32,
             device='cpu',
             matrix: Optional[torch.Tensor] = None,
@@ -144,6 +145,8 @@ class Transform3d:
     ):
         """
         Args:
+            default_batch_size: A positive integer representing the minibatch size
+                if matrix is None, rot is None, and pos is also None.
             dtype: The data type of the transformation matrix.
                 to be used if `matrix = None`.
             device: The device for storing the implemented transformation.
@@ -152,10 +155,18 @@ class Transform3d:
                 representing the 4x4 3D transformation matrix.
                 If `None`, initializes with identity using
                 the specified `device` and `dtype`.
+            rot: A rotation matrix of shape (3, 3) or of shape (minibatch, 3, 3), or
+                a quaternion of shape (4,) or of shape (minibatch, 4), where
+                minibatch should match that of matrix if that is also passed in.
+                The rotation overrides the rotation given in the matrix argument, if any.
+            pos: A tensor of shape (3,) or of shape (minibatch, 3) representing the position
+                offsets of the transforms, where minibatch should match that of matrix if
+                that is also passed in. The position overrides the position given in the
+                matrix argument, if any.
         """
 
         if matrix is None:
-            self._matrix = torch.eye(4, dtype=dtype, device=device).view(1, 4, 4)
+            self._matrix = torch.eye(4, dtype=dtype, device=device).view(default_batch_size, 4, 4)
         else:
             if matrix.ndim not in (2, 3):
                 raise ValueError('"matrix" has to be a 2- or a 3-dimensional tensor.')
@@ -170,6 +181,8 @@ class Transform3d:
         if pos is not None:
             if not torch.is_tensor(pos):
                 pos = torch.tensor(pos, dtype=dtype, device=device)
+            if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] is 1:
+                self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
             self._matrix[:, :3, 3] = pos
 
         if rot is not None:
@@ -177,6 +190,8 @@ class Transform3d:
                 rot = torch.tensor(rot, dtype=dtype, device=device)
             if rot.shape[-1] is 4:
                 rot = quaternion_to_matrix(rot)
+            if rot.ndim is 3 and rot.shape[0] > 1 and self._matrix.shape[0] is 1:
+                self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
             self._matrix[:, :3, :3] = rot
 
         self._transforms = []  # store transforms to compose

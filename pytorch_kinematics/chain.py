@@ -124,11 +124,19 @@ class SerialChain(Chain):
         return names
 
     def forward_kinematics(self, th, world=tf.Transform3d(), end_only=True):
+        if not torch.is_tensor(th):
+            th = torch.tensor(th, dtype=world.dtype, device=world.device)
+        if len(th.shape) is 1:
+            N = 1
+            th = th.view(1, -1)
+        else:
+            N = th.shape[0]
+
         cnt = 0
         link_transforms = {}
-        trans = world
+        trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
         for f in self._serial_frames:
-            trans = trans.compose(f.get_transform(th[cnt]))
+            trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
             link_transforms[f.link.name] = trans.compose(f.link.offset)
             if f.joint.joint_type != "fixed":
                 cnt += 1
