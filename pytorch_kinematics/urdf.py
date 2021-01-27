@@ -3,6 +3,8 @@ from . import frame
 from . import chain
 import torch
 import pytorch_kinematics.transforms as tf
+# has better RPY to quaternion transformation
+import transformations as tf2
 
 JOINT_TYPE_MAP = {'revolute': 'revolute',
                   'continuous': 'revolute',
@@ -13,7 +15,7 @@ def _convert_transform(origin):
     if origin is None:
         return tf.Transform3d()
     else:
-        return tf.Transform3d(rot=tf.euler_angles_to_matrix(torch.tensor(origin.rpy, dtype=torch.float32), "ZYX"),
+        return tf.Transform3d(rot=torch.tensor(tf2.quaternion_from_euler(*origin.rpy, "sxyz"), dtype=torch.float32),
                               pos=origin.xyz)
 
 
@@ -80,7 +82,7 @@ def build_chain_from_urdf(data):
     ...   <child link="link2"/>
     ... </joint>
     ... </robot>'''
-    >>> chain = kp.build_chain_from_urdf(data)
+    >>> chain = pk.build_chain_from_urdf(data)
     >>> print(chain)
     link1_frame
      	link2_frame

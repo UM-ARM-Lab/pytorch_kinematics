@@ -11,7 +11,8 @@ setup(
     description='Robot kinematics implemented in pytorch',
     install_requires=[
         'torch',
-        'numpy'
+        'numpy',
+        'transformations'
     ],
     tests_require=[
         'pytest'
