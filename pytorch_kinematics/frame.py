@@ -41,7 +41,12 @@ class Joint(object):
         if self.joint_type != 'fixed' and axis is None:
             self.axis = torch.tensor([0.0, 0.0, 1.0], dtype=dtype, device=device)
         else:
-            self.axis = torch.tensor(axis, dtype=dtype, device=device)
+            if torch.is_tensor(axis):
+                self.axis = axis.clone().detach().to(dtype=dtype, device=device)
+            else:
+                self.axis = torch.tensor(axis, dtype=dtype, device=device)
+        # normalize axis to have norm 1 (needed for correct representation scaling with theta)
+        self.axis = self.axis / self.axis.norm()
 
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
