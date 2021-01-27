@@ -63,6 +63,29 @@ def test_urdf():
     assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0]))
     assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01]))
 
+    N = 1000
+    d = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float64
+
+    th_batch = torch.rand(N, len(chain.get_joint_parameter_names()), dtype=dtype, device=d)
+    chain = chain.to(dtype=dtype, device=d)
+
+    import time
+    start = time.time()
+    tg_batch = chain.forward_kinematics(th_batch)
+    m = tg_batch.get_matrix()
+    elapsed = time.time() - start
+    print("elapsed {}s for N={} when parallel".format(elapsed, N))
+
+    start = time.time()
+    elapsed = 0
+    for i in range(N):
+        tg = chain.forward_kinematics(th_batch[i])
+        elapsed += time.time() - start
+        start = time.time()
+        assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
+    print("elapsed {}s for N={} when serial".format(elapsed, N))
+
 
 # test robot with prismatic and fixed joints
 def test_fk_simple_arm():
@@ -74,6 +97,11 @@ def test_fk_simple_arm():
     pos, rot = quat_pos_from_transform3d(tg)
     assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678]))
     assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5]))
+
+    N = 100
+    ret = chain.forward_kinematics({'arm_elbow_pan_joint': torch.rand(N, 1), 'arm_wrist_lift_joint': torch.rand(N, 1)})
+    tg = ret['arm_wrist_roll']
+    assert list(tg.get_matrix().shape) == [N, 4, 4]
 
 
 def test_cuda():
