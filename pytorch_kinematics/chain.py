@@ -20,7 +20,14 @@ class Chain(object):
         self._root = root_frame
         self.dtype = dtype
         self.device = device
-        # TODO convert frames to our specified dtype and device
+
+    def to(self, dtype=None, device=None):
+        if dtype is not None:
+            self.dtype = dtype
+        if device is not None:
+            self.device = device
+        self._root = self._root.to(dtype=self.dtype, device=self.device)
+        return self
 
     def __str__(self):
         return str(self._root)
@@ -92,6 +99,8 @@ class Chain(object):
             th_dict = dict((j, th[i]) for i, j in enumerate(jn))
         else:
             th_dict = th
+        if world.dtype != self.dtype or world.device != self.device:
+            world = world.to(dtype=self.dtype, device=self.device, copy=True)
         return self._forward_kinematics(self._root, th_dict, world)
 
     @staticmethod
@@ -138,7 +147,9 @@ class SerialChain(Chain):
         return names
 
     def forward_kinematics(self, th, world=tf.Transform3d(), end_only=True):
-        th, N = ensure_2d_tensor(th, world.dtype, world.device)
+        if world.dtype != self.dtype or world.device != self.device:
+            world = world.to(dtype=self.dtype, device=self.device, copy=True)
+        th, N = ensure_2d_tensor(th, self.dtype, self.device)
 
         cnt = 0
         link_transforms = {}

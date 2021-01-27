@@ -24,6 +24,10 @@ class Link(object):
         self.offset = offset
         self.visuals = visuals
 
+    def to(self, *args, **kwargs):
+        self.offset = self.offset.to(*args, **kwargs)
+        return self
+
     def __repr__(self):
         return "Link(name='{0}', offset={1}, visuals={2})".format(self.name,
                                                                   self.offset,
@@ -50,6 +54,7 @@ class Joint(object):
 
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
+        self.offset = self.offset.to(*args, **kwargs)
         return self
 
     def __repr__(self):
@@ -73,6 +78,12 @@ class Frame(object):
             ret += child.__str__(level + 1)
         return ret
 
+    def to(self, *args, **kwargs):
+        self.joint = self.joint.to(*args, **kwargs)
+        self.link = self.link.to(*args, **kwargs)
+        self.children = [c.to(*args, **kwargs) for c in self.children]
+        return self
+
     def add_child(self, child):
         self.children.append(child)
 
@@ -80,12 +91,14 @@ class Frame(object):
         return (len(self.children) == 0)
 
     def get_transform(self, theta):
+        dtype = self.joint.axis.dtype
+        d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
-            t = tf.Transform3d(rot=tf.axis_angle_to_quaternion(theta * self.joint.axis))
+            t = tf.Transform3d(rot=tf.axis_angle_to_quaternion(theta * self.joint.axis), dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
-            t = tf.Transform3d(pos=theta * self.joint.axis)
+            t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)
         elif self.joint.joint_type == 'fixed':
-            t = tf.Transform3d(default_batch_size=theta.shape[0])
+            t = tf.Transform3d(default_batch_size=theta.shape[0], dtype=dtype, device=d)
         else:
             raise ValueError("Unsupported joint type %s." % self.joint.joint_type)
         return self.joint.offset.compose(t)

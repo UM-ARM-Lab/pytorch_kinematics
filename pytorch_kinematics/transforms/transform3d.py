@@ -219,7 +219,7 @@ class Transform3d:
         Returns:
             A new Transform3d with the stored transforms
         """
-        out = Transform3d(device=self.device)
+        out = Transform3d(device=self.device, dtype=self.dtype)
         out._matrix = self._matrix.clone()
         for other in others:
             if not isinstance(other, Transform3d):
@@ -408,7 +408,7 @@ class Transform3d:
         Returns:
             new Transforms object.
         """
-        other = Transform3d(device=self.device)
+        other = Transform3d(dtype=self.dtype, device=self.device)
         if self._lu is not None:
             other._lu = [elem.clone() for elem in self._lu]
         other._matrix = self._matrix.clone()
@@ -432,14 +432,14 @@ class Transform3d:
         Returns:
           Transform3d object.
         """
-        if not copy and self.device == device:
+        if not copy and (dtype is None or self.dtype == dtype) and self.device == device:
             return self
         other = self.clone()
         if self.device != device:
             other.device = device
+            other.dtype = dtype if dtype is not None else other.dtype
             other._matrix = self._matrix.to(device=device, dtype=dtype)
-            for t in other._transforms:
-                t.to(device, copy=copy, dtype=dtype)
+            other._transforms = [t.to(device, copy=copy, dtype=dtype) for t in other._transforms]
         return other
 
     def cpu(self):

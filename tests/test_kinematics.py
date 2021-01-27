@@ -59,6 +59,45 @@ def test_fk_simple_arm():
     assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5]))
 
 
+def test_cuda():
+    if torch.cuda.is_available():
+        d = "cuda"
+        dtype = torch.float64
+        chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+        chain = chain.to(dtype=dtype, device=d)
+
+        ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
+        tg = ret['arm_wrist_roll']
+        pos, rot = quat_pos_from_transform3d(tg)
+        assert torch.allclose(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
+        assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=dtype, device=d))
+
+        data = '<robot name="test_robot">' \
+               '<link name="link1" />' \
+               '<link name="link2" />' \
+               '<link name="link3" />' \
+               '<joint name="joint1" type="revolute">' \
+               '<origin xyz="1.0 0.0 0.0"/>' \
+               '<parent link="link1"/>' \
+               '<child link="link2"/>' \
+               '</joint>' \
+               '<joint name="joint2" type="revolute">' \
+               '<origin xyz="1.0 0.0 0.0"/>' \
+               '<parent link="link2"/>' \
+               '<child link="link3"/>' \
+               '</joint>' \
+               '</robot>'
+        chain = pk.build_serial_chain_from_urdf(data, 'link3')
+        chain = chain.to(dtype=dtype, device=d)
+        N = 20
+        th_batch = torch.rand(N, 2).to(device=d, dtype=dtype)
+        tg_batch = chain.forward_kinematics(th_batch)
+        m = tg_batch.get_matrix()
+        for i in range(N):
+            tg = chain.forward_kinematics(th_batch[i])
+            assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
+
+
 # test more complex robot and the MJCF parser
 def test_fk_mjcf():
     chain = pk.build_chain_from_mjcf(open("ant.xml").read())
@@ -90,4 +129,5 @@ if __name__ == "__main__":
     test_fkik()
     test_fk_simple_arm()
     test_fk_mjcf()
+    test_cuda()
     # test_fk_mjcf_humanoid()
