@@ -11,6 +11,11 @@ def quat_pos_from_transform3d(tg):
     return pos, rot
 
 
+def quaternion_equality(a, b):
+    # negative of a quaternion is the same rotation
+    return torch.allclose(a, b) or torch.allclose(a, -b)
+
+
 def test_fkik():
     data = '<robot name="test_robot">' \
            '<link name="link1" />' \
@@ -32,7 +37,7 @@ def test_fkik():
     tg = chain.forward_kinematics(th1)
     pos, rot = quat_pos_from_transform3d(tg)
     assert torch.allclose(pos, torch.tensor([[1.91081784, 0.41280851, 0.0000]]))
-    assert torch.allclose(rot, torch.tensor([[0.95521418, 0.0000, 0.0000, 0.2959153]]))
+    assert quaternion_equality(rot, torch.tensor([[0.95521418, 0.0000, 0.0000, 0.2959153]]))
     print(tg)
     # TODO implement and test inverse kinematics
     # th2 = chain.inverse_kinematics(tg)
@@ -47,6 +52,18 @@ def test_fkik():
         assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
 
+def test_urdf():
+    chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+    print(chain)
+    print(chain.get_joint_parameter_names())
+    th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
+    ret = chain.forward_kinematics(th, end_only=False)
+    tg = ret['lbr_iiwa_link_7']
+    pos, rot = quat_pos_from_transform3d(tg)
+    assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0]))
+    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01]))
+
+
 # test robot with prismatic and fixed joints
 def test_fk_simple_arm():
     chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
@@ -55,7 +72,7 @@ def test_fk_simple_arm():
     ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
     tg = ret['arm_wrist_roll']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert torch.allclose(rot, torch.tensor([0.70710678, 0., 0., 0.70710678]))
+    assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678]))
     assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5]))
 
 
@@ -69,7 +86,7 @@ def test_cuda():
         ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
         tg = ret['arm_wrist_roll']
         pos, rot = quat_pos_from_transform3d(tg)
-        assert torch.allclose(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
+        assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
         assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=dtype, device=d))
 
         data = '<robot name="test_robot">' \
@@ -107,11 +124,11 @@ def test_fk_mjcf():
     ret = chain.forward_kinematics(th)
     tg = ret['aux_1_child']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert torch.allclose(rot, torch.tensor([0.87758256, 0., 0., 0.47942554]))
+    assert quaternion_equality(rot, torch.tensor([0.87758256, 0., 0., 0.47942554]))
     assert torch.allclose(pos, torch.tensor([0.2, 0.2, 0.75]))
     tg = ret['front_left_foot_child']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert torch.allclose(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549]))
+    assert quaternion_equality(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549]))
     assert torch.allclose(pos, torch.tensor([0.13976626, 0.47635466, 0.75]))
     print(ret)
 
@@ -130,4 +147,5 @@ if __name__ == "__main__":
     test_fk_simple_arm()
     test_fk_mjcf()
     test_cuda()
+    test_urdf()
     # test_fk_mjcf_humanoid()
