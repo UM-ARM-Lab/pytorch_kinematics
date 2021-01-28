@@ -138,6 +138,8 @@ th = torch.rand(N, 7, dtype=dtype, device=d, requires_grad=True)
 J = chain.jacobian(th)
 ```
 
+The Jacobian can be used to compute inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
+for a survey of ways to do so. Note that IK may be better computed through other means.
 
 # Credits
 - `pytorch_kinematics/transforms` is extracted from [pytorch3d](https://github.com/facebookresearch/pytorch3d) with only minor edits.
