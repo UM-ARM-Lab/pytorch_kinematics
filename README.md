@@ -1,12 +1,14 @@
 # PyTorch Robot Kinematics
-- Parallel forward kinematics (FK)
-- Differentiable FK
+- Parallel forward kinematics (FK) and Jacobian calculation
+- Differentiable FK and Jacobian calculation
 - Load robot description from URDF, SDF, MJCF file 
 
 # Usage
 Clone repository somewhere, then `pip3 install -e .` to install in editable mode.
 
 See `tests/test_kinematics.py` for code samples; some are also shown here. Simplest use case with a serial chain:
+
+## Forward Kinematics (FK)
 ```python
 import math
 import pytorch_kinematics as pk
@@ -101,6 +103,42 @@ print(chain.get_joint_parameter_names())
 th = {'left_knee': 0.0, 'right_knee': 0.0}
 ret = chain.forward_kinematics(th)
 ```
+
+## Jacobian calculation
+The Jacobian (in the kinematics context) is a matrix describing how the end effector changes with respect to joint value changes
+(where ![dx](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D) is the twist, or stacked velocity and angular velocity):
+![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D) 
+
+For `SerialChain` we provide a differentiable and parallelizable method for computing the Jacobian with respect to the base frame.
+```python
+import math
+import torch
+import pytorch_kinematics as pk
+
+# can convert Chain to SerialChain by choosing end effector frame
+chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+# print(chain) to see the available links for use as end effector
+# note that any link can be chosen; it doesn't have to be a link with no children
+chain = pk.SerialChain(chain, "arm_wrist_roll_frame")
+
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+th = torch.tensor([0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0])
+# (1,6,7) tensor, with 7 corresponding to the DOF of the robot
+J = chain.jacobian(th)
+
+# get Jacobian in parallel and use CUDA if available
+N = 1000
+d = "cuda" if torch.cuda.is_available() else "cpu"
+dtype = torch.float64
+
+chain = chain.to(dtype=dtype, device=d)
+# Jacobian calculation is differentiable
+th = torch.rand(N, 7, dtype=dtype, device=d, requires_grad=True)
+# (N,6,7)
+J = chain.jacobian(th)
+```
+
+
 # Credits
 - `pytorch_kinematics/transforms` is extracted from [pytorch3d](https://github.com/facebookresearch/pytorch3d) with only minor edits.
 This was done instead of including `pytorch3d` as a dependency because it is hard to install and most of its code is unrelated.
