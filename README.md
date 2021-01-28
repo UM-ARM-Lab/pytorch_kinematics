@@ -1,12 +1,11 @@
 # PyTorch Robot Kinematics
-- Parallel forward kinematics (FK) and Jacobian calculation
-- Differentiable FK and Jacobian calculation
-- Load robot description from URDF, SDF, MJCF file 
+- Parallel and differentiable forward kinematics (FK) and Jacobian calculation
+- Load robot description from URDF, SDF, and MJCF formats 
 
 # Usage
 Clone repository somewhere, then `pip3 install -e .` to install in editable mode.
 
-See `tests/test_kinematics.py` for code samples; some are also shown here. Simplest use case with a serial chain:
+See `tests` for code samples; some are also shown here.
 
 ## Forward Kinematics (FK)
 ```python
@@ -73,7 +72,7 @@ pos.norm().backward()
 # now th.grad is populated
 ```
 
-We can load SDF and MJCF descriptions too, and pass in joint values via a dictionary (unspecified joints get th=0)
+We can load SDF and MJCF descriptions too, and pass in joint values via a dictionary (unspecified joints get th=0) for non-serial chains
 ```python
 import math
 import torch
@@ -138,11 +137,11 @@ th = torch.rand(N, 7, dtype=dtype, device=d, requires_grad=True)
 J = chain.jacobian(th)
 ```
 
-The Jacobian can be used to compute inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
-for a survey of ways to do so. Note that IK may be better computed through other means.
+The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
+for a survey of ways to do so. Note that IK may be better performed through other means (but doing it through the Jacobian can give an end-to-end differentiable method).
 
 # Credits
-- `pytorch_kinematics/transforms` is extracted from [pytorch3d](https://github.com/facebookresearch/pytorch3d) with only minor edits.
+- `pytorch_kinematics/transforms` is extracted from [pytorch3d](https://github.com/facebookresearch/pytorch3d) with minor extensions.
 This was done instead of including `pytorch3d` as a dependency because it is hard to install and most of its code is unrelated.
 - `pytorch_kinematics/urdf_parser_py`, and `pytorch_kinematics/mjcf_parser` is extracted from [kinpy](https://github.com/neka-nat/kinpy), as well as the FK logic.
-The contribution of this repository is mainly to port the logic to pytorch and parallelize it.
+This repository ports the logic to pytorch, parallelizes it, and provides some extensions.
