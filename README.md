@@ -1,6 +1,6 @@
 # PyTorch Robot Kinematics
 - Parallel forward kinematics (FK)
-- (TODO test this) Differentiable FK
+- Differentiable FK
 - Load robot description from URDF, SDF, MJCF file 
 
 # Usage
@@ -52,6 +52,23 @@ tg_batch = chain.forward_kinematics(th_batch)
 # elapsed 8.44686508178711s for N=1000 when serial
 for i in range(N):
     tg = chain.forward_kinematics(th_batch[i])
+```
+
+We can compute gradients through the FK
+```python
+import torch
+import math
+import pytorch_kinematics as pk
+
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+
+# require gradient through the input joint values
+th = torch.tensor([0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0], requires_grad=True)
+tg = chain.forward_kinematics(th)
+m = tg.get_matrix()
+pos = m[:, :3, 3]
+pos.norm().backward()
+# now th.grad is populated
 ```
 
 We can load SDF and MJCF descriptions too, and pass in joint values via a dictionary (unspecified joints get th=0)

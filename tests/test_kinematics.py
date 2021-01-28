@@ -51,6 +51,15 @@ def test_fkik():
         tg = chain.forward_kinematics(th_batch[i])
         assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
+    # check that gradients are passed through
+    th2 = torch.tensor([0.42553542, 0.17529176], requires_grad=True)
+    tg = chain.forward_kinematics(th2)
+    pos, rot = quat_pos_from_transform3d(tg)
+    # note that since we are using existing operations we are not checking grad calculation correctness
+    assert th2.grad is None
+    pos.norm().backward()
+    assert th2.grad is not None
+
 
 def test_urdf():
     chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
