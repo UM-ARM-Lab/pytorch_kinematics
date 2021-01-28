@@ -75,8 +75,41 @@ def test_gradient():
     assert th.grad is not None
 
 
+def test_jacobian_prismatic():
+    chain = pk.build_serial_chain_from_urdf(open("prismatic_robot.urdf").read(), "link4")
+    th = torch.zeros(3)
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
+    pos = m[0, :3, 3]
+    assert torch.allclose(pos, torch.tensor([0, 0, 1.]))
+    th = torch.tensor([0, 0.1, 0])
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
+    pos = m[0, :3, 3]
+    assert torch.allclose(pos, torch.tensor([0, -0.1, 1.]))
+    th = torch.tensor([0.1, 0.1, 0])
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
+    pos = m[0, :3, 3]
+    assert torch.allclose(pos, torch.tensor([0, -0.1, 1.1]))
+    th = torch.tensor([0.1, 0.1, 0.1])
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
+    pos = m[0, :3, 3]
+    assert torch.allclose(pos, torch.tensor([0.1, -0.1, 1.1]))
+
+    J = chain.jacobian(th)
+    assert torch.allclose(J, torch.tensor([[[0., 0., 1.],
+                                            [0., -1., 0.],
+                                            [1., 0., 0.],
+                                            [0., 0., 0.],
+                                            [0., 0., 0.],
+                                            [0., 0., 0.]]]))
+
+
 if __name__ == "__main__":
     test_correctness()
     test_parallel()
     test_dtype_device()
     test_gradient()
+    test_jacobian_prismatic()

@@ -8,6 +8,7 @@ import transformations as tf2
 
 JOINT_TYPE_MAP = {'revolute': 'revolute',
                   'continuous': 'revolute',
+                  'prismatic': 'prismatic',
                   'fixed': 'fixed'}
 
 

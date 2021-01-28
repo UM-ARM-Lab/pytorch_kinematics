@@ -41,6 +41,8 @@ class Joint(object):
                  dtype=torch.float32, device="cpu"):
         self.name = name
         self.offset = offset
+        if joint_type not in self.TYPES:
+            raise RuntimeError("joint specified as {} type not, but we only support {}".format(joint_type, self.TYPES))
         self.joint_type = joint_type
         if self.joint_type != 'fixed' and axis is None:
             self.axis = torch.tensor([0.0, 0.0, 1.0], dtype=dtype, device=device)

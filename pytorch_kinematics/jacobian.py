@@ -34,7 +34,9 @@ def calc_jacobian(serial_chain, th, tool=transforms.Transform3d()):
                              + cur_transform[:, 1, 2] * cur_transform[:, 0, 3]]).transpose(0, 1)
             delta = cur_transform[:, 2, 0:3]
             j_fl[:, :, -cnt] = torch.cat((d, delta), dim=-1)
-        # TODO handle prismatic joints
+        elif f.joint.joint_type == "prismatic":
+            cnt += 1
+            j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
         cur_frame_transform = f.get_transform(th[:, -cnt].view(N, 1)).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
 
