@@ -1,6 +1,5 @@
 import torch
 from . import jacobian
-from . import ik
 import pytorch_kinematics.transforms as tf
 
 
@@ -103,17 +102,6 @@ class Chain(object):
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         return self._forward_kinematics(self._root, th_dict, world)
 
-    @staticmethod
-    def _visuals_map(root):
-        vmap = {}
-        vmap[root.link.name] = root.link.visuals
-        for child in root.children:
-            vmap.update(Chain._visuals_map(child))
-        return vmap
-
-    def visuals_map(self):
-        return self._visuals_map(self._root)
-
 
 class SerialChain(Chain):
     def __init__(self, chain, end_frame_name, root_frame_name="", **kwargs):
@@ -163,6 +151,3 @@ class SerialChain(Chain):
 
     def jacobian(self, th):
         return jacobian.calc_jacobian(self, th)
-
-    def inverse_kinematics(self, pose, initial_state=None):
-        return ik.inverse_kinematics(self, pose, initial_state)
