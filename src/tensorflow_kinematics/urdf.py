@@ -2,7 +2,7 @@ from .urdf_parser_py.urdf import URDF, Mesh, Cylinder, Box, Sphere
 from . import frame
 from . import chain
 import torch
-import pytorch_kinematics.transforms as tf
+import tensorflow_kinematics.transforms as tf
 # has better RPY to quaternion transformation
 import transformations as tf2
 
@@ -74,7 +74,7 @@ def build_chain_from_urdf(data):
 
     Example
     -------
-    >>> import pytorch_kinematics as pk
+    >>> import tensorflow_kinematics as pk
     >>> data = '''<robot name="test_robot">
     ... <link name="link1" />
     ... <link name="link2" />

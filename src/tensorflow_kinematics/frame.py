@@ -1,5 +1,5 @@
-import pytorch_kinematics.transforms as tf
-import torch
+import tensorflow_kinematics.transforms as tf
+import tf
 
 
 class Visual(object):
@@ -38,19 +38,19 @@ class Joint(object):
     TYPES = ['fixed', 'revolute', 'prismatic']
 
     def __init__(self, name=None, offset=tf.Transform3d(), joint_type='fixed', axis=(0.0, 0.0, 1.0),
-                 dtype=torch.float32, device="cpu"):
+                 dtype=tf.float32, device="cpu"):
         self.name = name
         self.offset = offset
         if joint_type not in self.TYPES:
             raise RuntimeError("joint specified as {} type not, but we only support {}".format(joint_type, self.TYPES))
         self.joint_type = joint_type
         if axis is None:
-            self.axis = torch.tensor([0.0, 0.0, 1.0], dtype=dtype, device=device)
+            self.axis = tf.tensor([0.0, 0.0, 1.0], dtype=dtype, device=device)
         else:
-            if torch.is_tensor(axis):
+            if tf.is_tensor(axis):
                 self.axis = axis.clone().detach().to(dtype=dtype, device=device)
             else:
-                self.axis = torch.tensor(axis, dtype=dtype, device=device)
+                self.axis = tf.tensor(axis, dtype=dtype, device=device)
         # normalize axis to have norm 1 (needed for correct representation scaling with theta)
         self.axis = self.axis / self.axis.norm()
 

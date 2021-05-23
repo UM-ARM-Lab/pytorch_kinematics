@@ -1,20 +1,11 @@
-from setuptools import setup
+## ! DO NOT MANUALLY INVOKE THIS setup.py, USE CATKIN INSTEAD
 
-setup(
-    name='pytorch_kinematics',
-    version='0.2.0',
-    packages=['pytorch_kinematics'],
-    url='https://github.com/UM-ARM-Lab/pytorch_kinematics',
-    license='MIT',
-    author='zhsh',
-    author_email='zhsh@umich.edu',
-    description='Robot kinematics implemented in pytorch',
-    install_requires=[
-        'torch',
-        'numpy',
-        'transformations'
-    ],
-    tests_require=[
-        'pytest'
-    ]
-)
+from distutils.core import setup
+from catkin_pkg.python_setup import generate_distutils_setup
+
+# fetch values from package.xml
+setup_args = generate_distutils_setup(
+    packages=['tensorflow_kinematics'],
+    package_dir={'': 'src'})
+
+setup(**setup_args)

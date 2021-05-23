@@ -1,11 +1,11 @@
-import torch
+import tf
 from . import jacobian
-import pytorch_kinematics.transforms as tf
+import tensorflow_kinematics.transforms as tf
 
 
 def ensure_2d_tensor(th, dtype, device):
-    if not torch.is_tensor(th):
-        th = torch.tensor(th, dtype=dtype, device=device)
+    if not tf.is_tensor(th):
+        th = tf.tensor(th, dtype=dtype, device=device)
     if len(th.shape) <= 1:
         N = 1
         th = th.view(1, -1)
@@ -15,7 +15,7 @@ def ensure_2d_tensor(th, dtype, device):
 
 
 class Chain(object):
-    def __init__(self, root_frame, dtype=torch.float32, device="cpu"):
+    def __init__(self, root_frame, dtype=tf.float32, device="cpu"):
         self._root = root_frame
         self.dtype = dtype
         self.device = device

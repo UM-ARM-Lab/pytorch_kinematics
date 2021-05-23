@@ -1,7 +1,7 @@
 from . import frame
 from . import chain
 from . import mjcf_parser
-import pytorch_kinematics.transforms as tf
+import tensorflow_kinematics.transforms as tf
 
 JOINT_TYPE_MAP = {'hinge': 'revolute'}
 

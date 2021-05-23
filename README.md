@@ -10,7 +10,7 @@ See `tests` for code samples; some are also shown here.
 ## Forward Kinematics (FK)
 ```python
 import math
-import pytorch_kinematics as pk
+import tensorflow_kinematics as pk
 
 # load robot description from URDF and specify end effector link
 chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
@@ -34,7 +34,7 @@ rot = pk.matrix_to_quaternion(m[:, :3, :3])
 We can parallelize FK by passing in 2D joint values, and also use CUDA if available
 ```python
 import torch
-import pytorch_kinematics as pk
+import tensorflow_kinematics as pk
 
 d = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = torch.float64
@@ -59,7 +59,7 @@ We can compute gradients through the FK
 ```python
 import torch
 import math
-import pytorch_kinematics as pk
+import tensorflow_kinematics as pk
 
 chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
 
@@ -76,7 +76,7 @@ We can load SDF and MJCF descriptions too, and pass in joint values via a dictio
 ```python
 import math
 import torch
-import pytorch_kinematics as pk
+import tensorflow_kinematics as pk
 
 chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
 ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
@@ -112,7 +112,7 @@ For `SerialChain` we provide a differentiable and parallelizable method for comp
 ```python
 import math
 import torch
-import pytorch_kinematics as pk
+import tensorflow_kinematics as pk
 
 # can convert Chain to SerialChain by choosing end effector frame
 chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())

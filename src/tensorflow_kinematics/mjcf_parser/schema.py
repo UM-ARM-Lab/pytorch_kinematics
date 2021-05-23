@@ -82,7 +82,7 @@ def parse_schema(schema_path):
     Returns:
       An `ElementSpec` for the root element in the schema.
     """
-    schema_xml = etree.fromstring(pkgutil.get_data('pytorch_kinematics', schema_path))
+    schema_xml = etree.fromstring(pkgutil.get_data('tensorflow_kinematics', schema_path))
     return _parse_element(schema_xml)
 
 
