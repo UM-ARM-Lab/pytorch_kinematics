@@ -1,0 +1,29 @@
+<robot name="prismatic_robot"> 
+<link name="link1" />
+<link name="link2" />
+<link name="link3" />
+<link name="link4" />
+
+<joint name="joint1" type="prismatic">
+    <origin xyz="0.0 0.0 1.0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.5" upper="0.5" effort="1" velocity="1"/>
+    <parent link="link1"/>
+    <child link="link2"/>
+</joint>
+<joint name="joint2" type="prismatic">
+    <origin xyz="0.0 0.0 0.0" rpy="1.57079632679 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.5" upper="0.5" effort="1" velocity="1"/>
+    <parent link="link2"/>
+    <child link="link3"/>
+</joint>
+<joint name="joint3" type="prismatic">
+    <origin xyz="0.0 0.0 0.0" rpy="0 1.57079632679 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.5" upper="0.5" effort="1" velocity="1"/>
+    <parent link="link3"/>
+    <child link="link4"/>
+</joint>
+
+</robot>
