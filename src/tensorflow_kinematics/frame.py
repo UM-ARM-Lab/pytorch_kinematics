@@ -1,11 +1,11 @@
-import tensorflow_kinematics.transforms as tf
-import tf
+import tensorflow as tf
+from tensorflow_kinematics.transforms import Transform3d, axis_angle_to_quaternion
 
 
 class Visual(object):
     TYPES = ['box', 'cylinder', 'sphere', 'capsule', 'mesh']
 
-    def __init__(self, offset=tf.Transform3d(),
+    def __init__(self, offset=Transform3d(),
                  geom_type=None, geom_param=None):
         self.offset = offset
         self.geom_type = geom_type
@@ -18,7 +18,7 @@ class Visual(object):
 
 
 class Link(object):
-    def __init__(self, name=None, offset=tf.Transform3d(),
+    def __init__(self, name=None, offset=Transform3d(),
                  visuals=()):
         self.name = name
         self.offset = offset
@@ -37,22 +37,22 @@ class Link(object):
 class Joint(object):
     TYPES = ['fixed', 'revolute', 'prismatic']
 
-    def __init__(self, name=None, offset=tf.Transform3d(), joint_type='fixed', axis=(0.0, 0.0, 1.0),
-                 dtype=tf.float32, device="cpu"):
+    def __init__(self, name=None, offset=Transform3d(), joint_type='fixed', axis=(0.0, 0.0, 1.0),
+                 dtype=tf.float32):
         self.name = name
         self.offset = offset
         if joint_type not in self.TYPES:
             raise RuntimeError("joint specified as {} type not, but we only support {}".format(joint_type, self.TYPES))
         self.joint_type = joint_type
         if axis is None:
-            self.axis = tf.tensor([0.0, 0.0, 1.0], dtype=dtype, device=device)
+            self.axis = tf.constant([0.0, 0.0, 1.0], dtype=dtype)
         else:
-            if tf.is_tensor(axis):
-                self.axis = axis.clone().detach().to(dtype=dtype, device=device)
+            if isinstance(axis, tf.Tensor):
+                self.axis = tf.cast(axis, dtype=dtype)
             else:
-                self.axis = tf.tensor(axis, dtype=dtype, device=device)
+                self.axis = tf.constant(axis, dtype=dtype)
         # normalize axis to have norm 1 (needed for correct representation scaling with theta)
-        self.axis = self.axis / self.axis.norm()
+        self.axis, _ = tf.linalg.normalize(self.axis)
 
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
@@ -90,17 +90,16 @@ class Frame(object):
         self.children.append(child)
 
     def is_end(self):
-        return (len(self.children) == 0)
+        return len(self.children) == 0
 
     def get_transform(self, theta):
         dtype = self.joint.axis.dtype
-        d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
-            t = tf.Transform3d(rot=tf.axis_angle_to_quaternion(theta * self.joint.axis), dtype=dtype, device=d)
+            t = Transform3d(rot=axis_angle_to_quaternion(theta * self.joint.axis), dtype=dtype)
         elif self.joint.joint_type == 'prismatic':
-            t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)
+            t = Transform3d(pos=theta * self.joint.axis, dtype=dtype)
         elif self.joint.joint_type == 'fixed':
-            t = tf.Transform3d(default_batch_size=theta.shape[0], dtype=dtype, device=d)
+            t = Transform3d(default_batch_size=theta.shape[0], dtype=dtype)
         else:
             raise ValueError("Unsupported joint type %s." % self.joint.joint_type)
         return self.joint.offset.compose(t)

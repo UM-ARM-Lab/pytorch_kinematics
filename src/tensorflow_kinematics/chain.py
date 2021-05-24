@@ -1,31 +1,27 @@
-import tf
-from . import jacobian
-import tensorflow_kinematics.transforms as tf
+from tensorflow_kinematics import jacobian, Transform3d
+import tensorflow as tf
 
 
-def ensure_2d_tensor(th, dtype, device):
-    if not tf.is_tensor(th):
-        th = tf.tensor(th, dtype=dtype, device=device)
+def ensure_2d_tensor(th, dtype):
+    if isinstance(th, tf.Tensor):
+        th = tf.constant(th, dtype=dtype)
     if len(th.shape) <= 1:
         N = 1
-        th = th.view(1, -1)
+        th = tf.reshape(th, [1, -1])
     else:
         N = th.shape[0]
     return th, N
 
 
 class Chain(object):
-    def __init__(self, root_frame, dtype=tf.float32, device="cpu"):
+    def __init__(self, root_frame, dtype=tf.float32):
         self._root = root_frame
         self.dtype = dtype
-        self.device = device
 
-    def to(self, dtype=None, device=None):
+    def to(self, dtype=None):
         if dtype is not None:
             self.dtype = dtype
-        if device is not None:
-            self.device = device
-        self._root = self._root.to(dtype=self.dtype, device=self.device)
+        self._root = tf.cast(self._root, self.dtype)
         return self
 
     def __str__(self):
@@ -37,7 +33,7 @@ class Chain(object):
             if child.name == name:
                 return child
             ret = Chain._find_frame_recursive(name, child)
-            if not ret is None:
+            if ret is not None:
                 return ret
         return None
 
@@ -52,7 +48,7 @@ class Chain(object):
             if child.link.name == name:
                 return child.link
             ret = Chain._find_link_recursive(name, child)
-            if not ret is None:
+            if ret is not None:
                 return ret
         return None
 
@@ -74,16 +70,11 @@ class Chain(object):
         names = self._get_joint_parameter_names(self._root, exclude_fixed)
         return sorted(set(names), key=names.index)
 
-    def add_frame(self, frame, parent_name):
-        frame = self.find_frame(parent_name)
-        if not frame is None:
-            frame.add_child(frame)
-
     @staticmethod
-    def _forward_kinematics(root, th_dict, world=tf.Transform3d()):
+    def _forward_kinematics(root, th_dict, world=Transform3d()):
         link_transforms = {}
 
-        th, N = ensure_2d_tensor(th_dict.get(root.joint.name, 0.0), world.dtype, world.device)
+        th, N = ensure_2d_tensor(th_dict.get(root.joint.name, 0.0), world.dtype)
 
         trans = world.compose(root.get_transform(th.view(N, 1)))
         link_transforms[root.link.name] = trans.compose(root.link.offset)
@@ -91,15 +82,15 @@ class Chain(object):
             link_transforms.update(Chain._forward_kinematics(child, th_dict, trans))
         return link_transforms
 
-    def forward_kinematics(self, th, world=tf.Transform3d()):
+    def forward_kinematics(self, th, world=Transform3d()):
         if not isinstance(th, dict):
             jn = self.get_joint_parameter_names()
             assert len(jn) == len(th)
             th_dict = dict((j, th[i]) for i, j in enumerate(jn))
         else:
             th_dict = th
-        if world.dtype != self.dtype or world.device != self.device:
-            world = world.to(dtype=self.dtype, device=self.device, copy=True)
+        if world.dtype != self.dtype:
+            world = tf.cast(world, self.dtype)
         return self._forward_kinematics(self._root, th_dict, world)
 
 
@@ -122,7 +113,7 @@ class SerialChain(Chain):
                 return [child]
             else:
                 frames = SerialChain._generate_serial_chain_recurse(child, end_frame_name)
-                if not frames is None:
+                if frames is not None:
                     return [child] + frames
         return None
 
@@ -134,14 +125,14 @@ class SerialChain(Chain):
             names.append(f.joint.name)
         return names
 
-    def forward_kinematics(self, th, world=tf.Transform3d(), end_only=True):
-        if world.dtype != self.dtype or world.device != self.device:
-            world = world.to(dtype=self.dtype, device=self.device, copy=True)
-        th, N = ensure_2d_tensor(th, self.dtype, self.device)
+    def forward_kinematics(self, th, world=Transform3d(), end_only=True):
+        if world.dtype != self.dtype:
+            world = tf.cast(world, self.dtype)
+        th, N = ensure_2d_tensor(th, self.dtype)
 
         cnt = 0
         link_transforms = {}
-        trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
+        trans = Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
         for f in self._serial_frames:
             trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
             link_transforms[f.link.name] = trans.compose(f.link.offset)

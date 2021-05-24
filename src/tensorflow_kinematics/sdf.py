@@ -1,20 +1,22 @@
-import torch
 import math
+
+import tensorflow as tf
+
 from tensorflow_kinematics import frame
-from tensorflow_kinematics import chain
-import tensorflow_kinematics.transforms as tf
+from tensorflow_kinematics import transforms
+from tensorflow_kinematics.transforms import Transform3d
 from urdf_parser_py.urdf import Mesh, Cylinder, Box, Sphere
 
-JOINT_TYPE_MAP = {'revolute': 'revolute',
+JOINT_TYPE_MAP = {'revolute':  'revolute',
                   'prismatic': 'prismatic',
-                  'fixed': 'fixed'}
+                  'fixed':     'fixed'}
 
 
 def _convert_transform(pose):
     if pose is None:
-        return tf.Transform3d()
+        return Transform3d()
     else:
-        return tf.Transform3d(rot=tf.euler_angles_to_matrix(torch.tensor(pose[3:]), "ZYX"), pos=pose[:3])
+        return Transform3d(rot=transforms.euler_angles_to_matrix(tf.constant(pose[3:]), "ZYX"), pos=pose[:3])
 
 
 def _convert_visuals(visuals):
@@ -27,7 +29,7 @@ def _convert_visuals(visuals):
         elif isinstance(v.geometry, Cylinder):
             g_type = "cylinder"
             v_tf = v_tf.compose(
-                tf.Transform3d(rot=tf.euler_angles_to_matrix(torch.tensor([0.5 * math.pi, 0, 0]), "ZYX")))
+                Transform3d(rot=transforms.euler_angles_to_matrix(tf.constant([0.5 * math.pi, 0, 0]), "ZYX")))
             g_param = (v.geometry.radius, v.geometry.length)
         elif isinstance(v.geometry, Box):
             g_type = "box"
@@ -53,7 +55,7 @@ def _build_chain_recurse(root_frame, lmap, joints):
             t_c = _convert_transform(link_c.pose)
             child_frame.joint = frame.Joint(j.name, offset=t_p.inverse().compose(t_c),
                                             joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis.xyz)
-            child_frame.link = frame.Link(link_c.name, offset=tf.Transform3d(),
+            child_frame.link = frame.Link(link_c.name, offset=Transform3d(),
                                           visuals=_convert_visuals(link_c.visuals))
             child_frame.children = _build_chain_recurse(child_frame, lmap, joints)
             children.append(child_frame)

@@ -24,15 +24,15 @@ import collections
 import hashlib
 import os
 
+import numpy as np
+import six
+import tensorflow as tf
+
 from . import base
 from . import constants
 from . import debugging
-from . import util
-import six
-import torch
-import numpy as np
-
 from . import io as resources
+from . import util
 
 _INVALID_REFERENCE_TYPE = (
     'Reference should be an MJCF Element whose type is one of {valid_types!r}: '
@@ -181,15 +181,14 @@ class Array(_Attribute):
     """An array MJCF attribute."""
 
     def __init__(self, name, required, parent, value,
-                 conflict_allowed, conflict_behavior, length, dtype, device="cpu"):
+                 conflict_allowed, conflict_behavior, length, dtype):
         self._length = length
         self.dtype = dtype
-        self.device = device
         super(Array, self).__init__(name, required, parent, value,
                                     conflict_allowed, conflict_behavior)
 
     def _assign(self, value):
-        self._value = self._check_shape(torch.tensor(value, dtype=self.dtype, device=self.device))
+        self._value = self._check_shape(tf.constant(value, dtype=self.dtype))
 
     def _assign_from_string(self, string):
         self._assign(np.fromstring(string, dtype=self.dtype, sep=' '))

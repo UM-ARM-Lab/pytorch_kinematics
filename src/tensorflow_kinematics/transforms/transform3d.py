@@ -1,12 +1,13 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
-
 import math
 import warnings
 from typing import Optional
 
+import numpy as np
 import tensorflow as tf
 
-from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix
+from tensorflow_kinematics.transforms.rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, \
+    quaternion_to_matrix
 
 
 class Transform3d:
@@ -137,7 +138,7 @@ class Transform3d:
     def __init__(
             self,
             default_batch_size=1,
-            dtype: tf.float32,
+            dtype=tf.float32,
             matrix: Optional[tf.Tensor] = None,
             rot: Optional[tf.Tensor] = None,
             pos: Optional[tf.Tensor] = None,
@@ -163,7 +164,7 @@ class Transform3d:
         """
 
         if matrix is None:
-            self._matrix = tf.eye(4, dtype=dtype).view(default_batch_size, 4, 4)
+            self._matrix = tf.reshape(tf.eye(4, dtype=dtype), [default_batch_size, 4, 4])
         else:
             if matrix.ndim not in (2, 3):
                 raise ValueError('"matrix" has to be a 2- or a 3-dimensional tensor.')
@@ -171,18 +172,20 @@ class Transform3d:
                 raise ValueError(
                     '"matrix" has to be a tensor of shape (minibatch, 4, 4)'
                 )
-            self._matrix = matrix.view(-1, 4, 4)
+            self._matrix = tf.reshape(matrix, [-1, 4, 4])
 
         if pos is not None:
             if not tf.is_tensor(pos):
-                pos = tf.tensor(pos, dtype=dtype)
+                pos = tf.constant(pos, dtype=dtype)
             if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
+            # FIXME:
             self._matrix[:, :3, 3] = pos
+            self._matrix[:, :3, 3] = tf.concat(self._matrix[:, :3, 3], pos, axis=)
 
         if rot is not None:
             if not tf.is_tensor(rot):
-                rot = tf.tensor(rot, dtype=dtype)
+                rot = tf.constant(rot, dtype=dtype)
             if rot.shape[-1] == 4:
                 rot = quaternion_to_matrix(rot)
             if rot.ndim == 3 and rot.shape[0] > 1 and self._matrix.shape[0] == 1:
@@ -260,7 +263,7 @@ class Transform3d:
         """
         Return the inverse of self._matrix.
         """
-        return tf.inverse(self._matrix)
+        return tf.linalg.inv(self._matrix)
 
     def inverse(self, invert_composed: bool = False):
         """
@@ -286,7 +289,7 @@ class Transform3d:
 
         if invert_composed:
             # first compose then invert
-            tinv._matrix = tf.inverse(self.get_matrix())
+            tinv._matrix = tf.linalg.inv(self.get_matrix())
         else:
             # self._get_matrix_inverse() implements efficient inverse
             # of self._matrix
@@ -313,7 +316,7 @@ class Transform3d:
 
     def stack(self, *others):
         transforms = [self] + list(others)
-        matrix = tf.cat([t._matrix for t in transforms], dim=0)
+        matrix = tf.concat([t._matrix for t in transforms], axis=0)
         out = Transform3d()
         out._matrix = matrix
         return out
@@ -346,14 +349,14 @@ class Transform3d:
 
         N, P, _3 = points_batch.shape
         ones = tf.ones(N, P, 1, dtype=points.dtype)
-        points_batch = tf.cat([points_batch, ones], dim=2)
+        points_batch = tf.concat([points_batch, ones], axis=2)
 
         composed_matrix = self.get_matrix()
         points_out = _broadcast_bmm(points_batch, composed_matrix)
         denom = points_out[..., 3:]  # denominator
         if eps is not None:
             denom_sign = denom.sign() + (denom == 0.0).type_as(denom)
-            denom = denom_sign * tf.clamp(denom.abs(), eps)
+            denom = denom_sign * tf.clip_by_value(denom.abs(), -eps, eps)
         points_out = points_out[..., :3] / denom
 
         # When transform is (1, 4, 4) and points is (P, 3) return
@@ -433,14 +436,14 @@ class Translate(Transform3d):
             concatenated to form the translation. Each can be:
                 - A python scalar
                 - A tf scalar
-                - A 1D tf tensor
+                - A 1D tf.constant
         """
         super().__init__()
         xyz = _handle_input(x, y, z, dtype, "Translate")
         N = xyz.shape[0]
 
         mat = tf.eye(4, dtype=dtype)
-        mat = mat.view(1, 4, 4).repeat(N, 1, 1)
+        mat = tf.tile(tf.reshape(mat, [1, 4, 4]), [N, 1, 1])
         mat[:, 3, :3] = xyz
         self._matrix = mat
 
@@ -455,30 +458,30 @@ class Translate(Transform3d):
 
 
 class Scale(Transform3d):
-    def __init__(self, x, y=None, z=None, dtype=tf.float32, device: str = "cpu"):
+    def __init__(self, x, y=None, z=None, dtype=tf.float32):
         """
         A Transform3d representing a scaling operation, with different scale
         factors along each coordinate axis.
 
-        Option I: Scale(s, dtype=tf.float32, device='cpu')
+        Option I: Scale(s, dtype=tf.float32)
             s can be one of
                 - Python scalar or tf scalar: Single uniform scale
-                - 1D tf tensor of shape (N,): A batch of uniform scale
-                - 2D tf tensor of shape (N, 3): Scale differently along each axis
+                - 1D tf.constant of shape (N,): A batch of uniform scale
+                - 2D tf.constant of shape (N, 3): Scale differently along each axis
 
-        Option II: Scale(x, y, z, dtype=tf.float32, device='cpu')
+        Option II: Scale(x, y, z, dtype=tf.float32)
             Each of x, y, and z can be one of
                 - python scalar
                 - tf scalar
-                - 1D tf tensor
+                - 1D tf.constant
         """
-        super().__init__(device=device)
-        xyz = _handle_input(x, y, z, dtype, device, "scale", allow_singleton=True)
+        super().__init__()
+        xyz = _handle_input(x, y, z, dtype, "scale", allow_singleton=True)
         N = xyz.shape[0]
 
         # TODO: Can we do this all in one go somehow?
-        mat = tf.eye(4, dtype=dtype, device=device)
-        mat = mat.view(1, 4, 4).repeat(N, 1, 1)
+        mat = tf.eye(4, dtype=dtype)
+        mat = tf.tile(tf.reshape(mat, [1, 4, 4]), [N, 1, 1])
         mat[:, 0, 0] = xyz[:, 0]
         mat[:, 1, 1] = xyz[:, 1]
         mat[:, 2, 2] = xyz[:, 2]
@@ -490,13 +493,13 @@ class Scale(Transform3d):
         """
         xyz = tf.stack([self._matrix[:, i, i] for i in range(4)], dim=1)
         ixyz = 1.0 / xyz
-        imat = tf.diag_embed(ixyz, dim1=1, dim2=2)
+        imat = tf.linalg.diag(ixyz, (1, 2))
         return imat
 
 
 class Rotate(Transform3d):
     def __init__(
-            self, R, dtype=tf.float32, device: str = "cpu", orthogonal_tol: float = 1e-5
+            self, R, dtype=tf.float32, orthogonal_tol: float = 1e-5
     ):
         """
         Create a new Transform3d representing 3D rotation using a rotation
@@ -507,17 +510,17 @@ class Rotate(Transform3d):
             orthogonal_tol: tolerance for the test of the orthogonality of R
 
         """
-        super().__init__(device=device)
+        super().__init__()
         if R.dim() == 2:
             R = R[None]
         if R.shape[-2:] != (3, 3):
             msg = "R must have shape (3, 3) or (N, 3, 3); got %s"
             raise ValueError(msg % repr(R.shape))
-        R = R.to(dtype=dtype).to(device=device)
+        R = R.to(dtype=dtype)
         _check_valid_rotation_matrix(R, tol=orthogonal_tol)
         N = R.shape[0]
-        mat = tf.eye(4, dtype=dtype, device=device)
-        mat = mat.view(1, 4, 4).repeat(N, 1, 1)
+        mat = tf.eye(4, dtype=dtype)
+        mat = tf.tile(tf.reshape(mat, [1, 4, 4]), [N, 1, 1])
         mat[:, :3, :3] = R
         self._matrix = mat
 
@@ -535,7 +538,6 @@ class RotateAxisAngle(Rotate):
             axis: str = "X",
             degrees: bool = True,
             dtype=tf.float64,
-            device: str = "cpu",
     ):
         """
         Create a new Transform3d representing 3D rotation about an axis
@@ -546,7 +548,7 @@ class RotateAxisAngle(Rotate):
 
         Args:
             angle:
-                - A tf tensor of shape (N,)
+                - A tf.constant of shape (N,)
                 - A python scalar
                 - A tf scalar
             axis:
@@ -558,34 +560,34 @@ class RotateAxisAngle(Rotate):
         if axis not in ["X", "Y", "Z"]:
             msg = "Expected axis to be one of ['X', 'Y', 'Z']; got %s"
             raise ValueError(msg % axis)
-        angle = _handle_angle_input(angle, dtype, device, "RotateAxisAngle")
+        angle = _handle_angle_input(angle, dtype, "RotateAxisAngle")
         angle = (angle / 180.0 * math.pi) if degrees else angle
         # We assume the points on which this transformation will be applied
         # are row vectors. The rotation matrix returned from _axis_angle_rotation
         # is for transforming column vectors. Therefore we transpose this matrix.
         # R will always be of shape (N, 3, 3)
         R = _axis_angle_rotation(axis, angle).transpose(1, 2)
-        super().__init__(device=device, R=R)
+        super().__init__(R=R)
 
 
-def _handle_coord(c, dtype, device):
+def _handle_coord(c, dtype):
     """
     Helper function for _handle_input.
 
     Args:
-        c: Python scalar, tf scalar, or 1D tf tensor
+        c: Python scalar, tf scalar, or 1D tf.constant
 
     Returns:
-        c_vec: 1D tf tensor
+        c_vec: 1D tf.constant
     """
     if not tf.is_tensor(c):
-        c = tf.tensor(c, dtype=dtype, device=device)
+        c = tf.constant(c, dtype=dtype)
     if c.dim() == 0:
-        c = c.view(1)
+        c = tf.reshape(c, 1)
     return c
 
 
-def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool = False):
+def _handle_input(x, y, z, dtype, name: str, allow_singleton: bool = False):
     """
     Helper function to handle parsing logic for building transforms. The output
     is always a tensor of shape (N, 3), but there are several types of allowed
@@ -628,7 +630,7 @@ def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool = Fal
         z = x
 
     # Convert all to 1D tensors
-    xyz = [_handle_coord(c, dtype, device) for c in [x, y, z]]
+    xyz = [_handle_coord(c, dtype) for c in [x, y, z]]
 
     # Broadcast and concatenate
     sizes = [c.shape[0] for c in xyz]
@@ -642,7 +644,7 @@ def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool = Fal
     return xyz
 
 
-def _handle_angle_input(x, dtype, device: str, name: str):
+def _handle_angle_input(x, dtype, name: str):
     """
     Helper function for building a rotation function using angles.
     The output is always of shape (N,).
@@ -656,7 +658,7 @@ def _handle_angle_input(x, dtype, device: str, name: str):
         msg = "Expected tensor of shape (N,); got %r (in %s)"
         raise ValueError(msg % (x.shape, name))
     else:
-        return _handle_coord(x, dtype, device)
+        return _handle_coord(x, dtype)
 
 
 def _broadcast_bmm(a, b):
@@ -664,8 +666,8 @@ def _broadcast_bmm(a, b):
     Batch multiply two matrices and broadcast if necessary.
 
     Args:
-        a: tf tensor of shape (P, K) or (M, P, K)
-        b: tf tensor of shape (N, K, K)
+        a: tf.constant of shape (P, K) or (M, P, K)
+        b: tf.constant of shape (N, K, K)
 
     Returns:
         a and b broadcast multipled. The output batch dimension is max(N, M).
@@ -703,11 +705,11 @@ def _check_valid_rotation_matrix(R, tol: float = 1e-7):
     Emits a warning if R is an invalid rotation matrix.
     """
     N = R.shape[0]
-    eye = tf.eye(3, dtype=R.dtype, device=R.device)
-    eye = eye.view(1, 3, 3).expand(N, -1, -1)
-    orthogonal = tf.allclose(R.bmm(R.transpose(1, 2)), eye, atol=tol)
-    det_R = tf.det(R)
-    no_distortion = tf.allclose(det_R, tf.ones_like(det_R))
+    eye = tf.eye(3, dtype=R.dtype)
+    eye = tf.tile(tf.reshape(eye, [1, 3, 3]), [N, 1, 1])
+    orthogonal = np.allclose(R.bmm(R.transpose(1, 2)), eye, atol=tol)
+    det_R = tf.linalg.det(R)
+    no_distortion = np.allclose(det_R, tf.ones_like(det_R))
     if not (orthogonal and no_distortion):
         msg = "R is not a valid rotation matrix"
         warnings.warn(msg)

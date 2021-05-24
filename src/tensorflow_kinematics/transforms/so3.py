@@ -1,8 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
-
-
-import torch
-
+import tensorflow as tf
 
 HAT_INV_SKEW_SYMMETRIC_TOL = 1e-5
 
@@ -31,7 +28,7 @@ def so3_relative_angle(R1, R2, cos_angle: bool = False):
         ValueError if `R1` or `R2` is of incorrect shape.
         ValueError if `R1` or `R2` has an unexpected trace.
     """
-    R12 = torch.bmm(R1, R2.permute(0, 2, 1))
+    R12 = tf.matmul(R1, R2.permute(0, 2, 1))
     return so3_rotation_angle(R12, cos_angle=cos_angle)
 
 
@@ -69,7 +66,7 @@ def so3_rotation_angle(R, eps: float = 1e-4, cos_angle: bool = False):
         raise ValueError("A matrix has trace outside valid range [-1-eps,3+eps].")
 
     # clamp to valid range
-    rot_trace = torch.clamp(rot_trace, -1.0, 3.0)
+    rot_trace = tf.clip_by_value(rot_trace, -1.0, 3.0)
 
     # phi ... rotation angle
     phi = 0.5 * (rot_trace - 1.0)
@@ -112,7 +109,7 @@ def so3_exponential_map(log_rot, eps: float = 0.0001):
 
     nrms = (log_rot * log_rot).sum(1)
     # phis ... rotation angles
-    rot_angles = torch.clamp(nrms, eps).sqrt()
+    rot_angles = tf.clip_by_value(nrms, -eps, eps).sqrt()
     rot_angles_inv = 1.0 / rot_angles
     fac1 = rot_angles_inv * rot_angles.sin()
     fac2 = rot_angles_inv * rot_angles_inv * (1.0 - rot_angles.cos())
@@ -120,9 +117,9 @@ def so3_exponential_map(log_rot, eps: float = 0.0001):
 
     R = (
         # pyre-fixme[16]: `float` has no attribute `__getitem__`.
-        fac1[:, None, None] * skews
-        + fac2[:, None, None] * torch.bmm(skews, skews)
-        + torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
+            fac1[:, None, None] * skews
+            + fac2[:, None, None] * tf.matmul(skews, skews)
+            + tf.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
     )
 
     return R
@@ -157,8 +154,8 @@ def so3_log_map(R, eps: float = 0.0001):
     phi_sin = phi.sin()
 
     phi_denom = (
-        torch.clamp(phi_sin.abs(), eps) * phi_sin.sign()
-        + (phi_sin == 0).type_as(phi) * eps
+            tf.clip_by_value(phi_sin.abs(), -eps, eps) * phi_sin.sign()
+            + (phi_sin == 0).type_as(phi) * eps
     )
 
     log_rot_hat = (phi / (2.0 * phi_denom))[:, None, None] * (R - R.permute(0, 2, 1))
@@ -196,7 +193,7 @@ def hat_inv(h):
     y = h[:, 0, 2]
     z = h[:, 1, 0]
 
-    v = torch.stack((x, y, z), dim=1)
+    v = tf.stack((x, y, z), dim=1)
 
     return v
 

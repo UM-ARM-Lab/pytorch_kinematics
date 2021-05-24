@@ -1,23 +1,23 @@
-from .urdf_parser_py.urdf import URDF, Mesh, Cylinder, Box, Sphere
-from . import frame
-from . import chain
-import torch
-import tensorflow_kinematics.transforms as tf
-# has better RPY to quaternion transformation
-import transformations as tf2
+import tensorflow as tf
+import transformations
 
-JOINT_TYPE_MAP = {'revolute': 'revolute',
+from urdf_parser_py.urdf import URDF, Mesh, Cylinder, Box, Sphere
+from . import chain, Transform3d
+from . import frame
+
+JOINT_TYPE_MAP = {'revolute':   'revolute',
                   'continuous': 'revolute',
-                  'prismatic': 'prismatic',
-                  'fixed': 'fixed'}
+                  'prismatic':  'prismatic',
+                  'fixed':      'fixed'}
 
 
 def _convert_transform(origin):
     if origin is None:
-        return tf.Transform3d()
+        return Transform3d()
     else:
-        return tf.Transform3d(rot=torch.tensor(tf2.quaternion_from_euler(*origin.rpy, "sxyz"), dtype=torch.float32),
-                              pos=origin.xyz)
+        return Transform3d(
+            rot=tf.constant(transformations.quaternion_from_euler(*origin.rpy, "sxyz"), dtype=tf.float32),
+            pos=origin.xyz)
 
 
 def _convert_visual(visual):
