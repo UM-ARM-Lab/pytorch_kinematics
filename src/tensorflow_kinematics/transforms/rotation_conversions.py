@@ -42,8 +42,8 @@ def quaternion_to_matrix(quaternions):
     Returns:
         Rotation matrices as tensor of shape (..., 3, 3).
     """
-    r, i, j, k = tf.unstack(quaternions, -1)
-    two_s = 2.0 / (quaternions * quaternions).sum(-1)
+    r, i, j, k = tf.unstack(quaternions, axis=-1)
+    two_s = 2.0 / tf.reduce_sum(quaternions * quaternions, axis=-1)
 
     o = tf.stack(
         (
@@ -59,7 +59,7 @@ def quaternion_to_matrix(quaternions):
         ),
         -1,
     )
-    return o.reshape(quaternions.shape[:-1] + (3, 3))
+    return tf.reshape(o, quaternions.shape[:-1] + [3, 3])
 
 
 def _copysign(a, b):
@@ -165,7 +165,7 @@ def euler_angles_to_matrix(euler_angles, convention: str):
     for letter in convention:
         if letter not in ("X", "Y", "Z"):
             raise ValueError(f"Invalid letter {letter} in convention string.")
-    matrices = map(_axis_angle_rotation, convention, tf.unstack(euler_angles, -1))
+    matrices = map(_axis_angle_rotation, convention, tf.unstack(euler_angles, axis=-1))
     return functools.reduce(tf.matmul, matrices)
 
 

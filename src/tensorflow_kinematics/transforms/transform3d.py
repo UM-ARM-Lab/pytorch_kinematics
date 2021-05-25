@@ -179,9 +179,9 @@ class Transform3d:
                 pos = tf.constant(pos, dtype=dtype)
             if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
-            # FIXME:
-            self._matrix[:, :3, 3] = pos
-            self._matrix[:, :3, 3] = tf.concat(self._matrix[:, :3, 3], pos, axis=)
+            self._matrix = tf.concat([self._matrix[:, :, :3],
+                                      tf.concat([pos[None, :, None], tf.ones([1, 1, 1])], 1)],
+                                     axis=2)
 
         if rot is not None:
             if not tf.is_tensor(rot):
@@ -190,7 +190,8 @@ class Transform3d:
                 rot = quaternion_to_matrix(rot)
             if rot.ndim == 3 and rot.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
-            self._matrix[:, :3, :3] = rot
+            self._matrix = tf.concat([self._matrix[:, :, 3:],
+                                      tf.concat([rot[None], tf.zeros([1, 1, 3])], 1)], axis=2)
 
         self._transforms = []  # store transforms to compose
         self._lu = None
@@ -252,7 +253,7 @@ class Transform3d:
         Returns:
             A transformation matrix representing the composed inputs.
         """
-        composed_matrix = self._matrix.clone()
+        composed_matrix = self._matrix
         if len(self._transforms) > 0:
             for other in self._transforms:
                 other_matrix = other.get_matrix()
