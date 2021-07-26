@@ -149,5 +149,7 @@ class SerialChain(Chain):
                 cnt += 1
         return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms
 
-    def jacobian(self, th):
-        return jacobian.calc_jacobian(self, th)
+    def jacobian(self, th, locations=None):
+        if locations is not None:
+            locations = tf.Transform3d(pos=locations)
+        return jacobian.calc_jacobian(self, th, tool=locations)

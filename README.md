@@ -135,6 +135,11 @@ chain = chain.to(dtype=dtype, device=d)
 th = torch.rand(N, 7, dtype=dtype, device=d, requires_grad=True)
 # (N,6,7)
 J = chain.jacobian(th)
+
+# can get Jacobian at a point offset from the end effector (location is specified in EE link frame)
+# by default location is at the origin of the EE frame
+loc = torch.rand(N, 3, dtype=dtype, device=d)
+J = chain.jacobian(th, locations=loc)
 ```
 
 The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
