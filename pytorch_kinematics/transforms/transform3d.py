@@ -435,11 +435,10 @@ class Transform3d:
         if not copy and (dtype is None or self.dtype == dtype) and self.device == device:
             return self
         other = self.clone()
-        if self.device != device:
-            other.device = device
-            other.dtype = dtype if dtype is not None else other.dtype
-            other._matrix = self._matrix.to(device=device, dtype=dtype)
-            other._transforms = [t.to(device, copy=copy, dtype=dtype) for t in other._transforms]
+        other.device = device
+        other.dtype = dtype if dtype is not None else other.dtype
+        other._matrix = self._matrix.to(device=device, dtype=dtype)
+        other._transforms = [t.to(device, copy=copy, dtype=dtype) for t in other._transforms]
         return other
 
     def cpu(self):
