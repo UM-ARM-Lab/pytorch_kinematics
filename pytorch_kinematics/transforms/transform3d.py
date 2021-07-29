@@ -1,6 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
 import math
+import typing
 import warnings
 from typing import Optional
 
@@ -140,8 +141,8 @@ class Transform3d:
             dtype: torch.dtype = torch.float32,
             device='cpu',
             matrix: Optional[torch.Tensor] = None,
-            rot: Optional[torch.Tensor] = None,
-            pos: Optional[torch.Tensor] = None,
+            rot: Optional[typing.Iterable] = None,
+            pos: Optional[typing.Iterable] = None,
     ):
         """
         Args:
