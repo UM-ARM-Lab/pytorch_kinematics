@@ -543,8 +543,13 @@ class Rotate(Transform3d):
 
         """
         super().__init__(device=device)
+        if not torch.is_tensor(R):
+            R = torch.tensor(R, dtype=dtype, device=device)
+        if R.shape[-1] is 4:
+            R = quaternion_to_matrix(R)
         if R.dim() == 2:
             R = R[None]
+
         if R.shape[-2:] != (3, 3):
             msg = "R must have shape (3, 3) or (N, 3, 3); got %s"
             raise ValueError(msg % repr(R.shape))
