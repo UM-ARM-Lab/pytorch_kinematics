@@ -401,6 +401,9 @@ class Transform3d:
     def scale(self, *args, **kwargs):
         return self.compose(Scale(device=self.device, *args, **kwargs))
 
+    def rotate(self, *args, **kwargs):
+        return self.compose(Rotate(device=self.device, *args, **kwargs))
+
     def rotate_axis_angle(self, *args, **kwargs):
         return self.compose(RotateAxisAngle(device=self.device, *args, **kwargs))
 

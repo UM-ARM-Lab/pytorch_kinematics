@@ -57,7 +57,25 @@ def test_rotate_axis_angle():
     assert torch.allclose(normals_out, normals_out_expected)
 
 
+def test_rotate():
+    R = tf.so3_exp_map(torch.randn((1, 3)))
+    t = tf.Transform3d().rotate(R)
+    points = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.5, 0.0]]).view(
+        1, 3, 3
+    )
+    normals = torch.tensor(
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0]]
+    ).view(1, 3, 3)
+    points_out = t.transform_points(points)
+    normals_out = t.transform_normals(normals)
+    points_out_expected = torch.bmm(points, R)
+    normals_out_expected = torch.bmm(normals, R)
+    assert torch.allclose(points_out, points_out_expected)
+    assert torch.allclose(normals_out, normals_out_expected)
+
+
 if __name__ == "__main__":
     test_transform()
     test_translations()
     test_rotate_axis_angle()
+    test_rotate()

@@ -1,8 +1,10 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
-
+import warnings
+from typing import Tuple
 import torch
 
+from pytorch_kinematics.transforms.math import acos_linear_extrapolation
 
 HAT_INV_SKEW_SYMMETRIC_TOL = 1e-5
 
@@ -35,25 +37,32 @@ def so3_relative_angle(R1, R2, cos_angle: bool = False):
     return so3_rotation_angle(R12, cos_angle=cos_angle)
 
 
-def so3_rotation_angle(R, eps: float = 1e-4, cos_angle: bool = False):
+def so3_rotation_angle(
+        R: torch.Tensor,
+        eps: float = 1e-4,
+        cos_angle: bool = False,
+        cos_bound: float = 1e-4,
+) -> torch.Tensor:
     """
     Calculates angles (in radians) of a batch of rotation matrices `R` with
     `angle = acos(0.5 * (Trace(R)-1))`. The trace of the
     input matrices is checked to be in the valid range `[-1-eps,3+eps]`.
     The `eps` argument is a small constant that allows for small errors
     caused by limited machine precision.
-
     Args:
         R: Batch of rotation matrices of shape `(minibatch, 3, 3)`.
         eps: Tolerance for the valid trace check.
         cos_angle: If==True return cosine of the rotation angles rather than
-                   the angle itself. This can avoid the unstable
-                   calculation of `acos`.
-
+            the angle itself. This can avoid the unstable
+            calculation of `acos`.
+        cos_bound: Clamps the cosine of the rotation angle to
+            [-1 + cos_bound, 1 - cos_bound] to avoid non-finite outputs/gradients
+            of the `acos` call. Note that the non-finite outputs/gradients
+            are returned when the angle is requested (i.e. `cos_angle==False`)
+            and the rotation angle is close to 0 or π.
     Returns:
         Corresponding rotation angles of shape `(minibatch,)`.
         If `cos_angle==True`, returns the cosine of the angles.
-
     Raises:
         ValueError if `R` is of incorrect shape.
         ValueError if `R` has an unexpected trace.
@@ -68,44 +77,47 @@ def so3_rotation_angle(R, eps: float = 1e-4, cos_angle: bool = False):
     if ((rot_trace < -1.0 - eps) + (rot_trace > 3.0 + eps)).any():
         raise ValueError("A matrix has trace outside valid range [-1-eps,3+eps].")
 
-    # clamp to valid range
-    rot_trace = torch.clamp(rot_trace, -1.0, 3.0)
-
     # phi ... rotation angle
-    phi = 0.5 * (rot_trace - 1.0)
+    phi_cos = (rot_trace - 1.0) * 0.5
 
     if cos_angle:
-        return phi
+        return phi_cos
     else:
-        # pyre-fixme[16]: `float` has no attribute `acos`.
-        return phi.acos()
+        if cos_bound > 0.0:
+            return acos_linear_extrapolation(phi_cos, 1.0 - cos_bound)
+        else:
+            return torch.acos(phi_cos)
 
 
-def so3_exponential_map(log_rot, eps: float = 0.0001):
+def so3_exp_map(log_rot: torch.Tensor, eps: float = 0.0001) -> torch.Tensor:
     """
     Convert a batch of logarithmic representations of rotation matrices `log_rot`
     to a batch of 3x3 rotation matrices using Rodrigues formula [1].
-
     In the logarithmic representation, each rotation matrix is represented as
     a 3-dimensional vector (`log_rot`) who's l2-norm and direction correspond
     to the magnitude of the rotation angle and the axis of rotation respectively.
-
     The conversion has a singularity around `log(R) = 0`
     which is handled by clamping controlled with the `eps` argument.
-
     Args:
-        log_rot: Batch of vectors of shape `(minibatch , 3)`.
+        log_rot: Batch of vectors of shape `(minibatch, 3)`.
         eps: A float constant handling the conversion singularity.
-
     Returns:
-        Batch of rotation matrices of shape `(minibatch , 3 , 3)`.
-
+        Batch of rotation matrices of shape `(minibatch, 3, 3)`.
     Raises:
         ValueError if `log_rot` is of incorrect shape.
-
     [1] https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
     """
+    return _so3_exp_map(log_rot, eps=eps)[0]
 
+
+def _so3_exp_map(
+        log_rot: torch.Tensor, eps: float = 0.0001
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    A helper function that computes the so3 exponential map and,
+    apart from the rotation matrix, also returns intermediate variables
+    that can be re-used in other functions.
+    """
     _, dim = log_rot.shape
     if dim != 3:
         raise ValueError("Input tensor shape has to be Nx3.")
@@ -117,15 +129,16 @@ def so3_exponential_map(log_rot, eps: float = 0.0001):
     fac1 = rot_angles_inv * rot_angles.sin()
     fac2 = rot_angles_inv * rot_angles_inv * (1.0 - rot_angles.cos())
     skews = hat(log_rot)
+    skews_square = torch.bmm(skews, skews)
 
     R = (
         # pyre-fixme[16]: `float` has no attribute `__getitem__`.
-        fac1[:, None, None] * skews
-        + fac2[:, None, None] * torch.bmm(skews, skews)
-        + torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
+            fac1[:, None, None] * skews
+            + fac2[:, None, None] * skews_square
+            + torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
     )
 
-    return R
+    return R, rot_angles, skews, skews_square
 
 
 def so3_log_map(R, eps: float = 0.0001):
@@ -157,8 +170,8 @@ def so3_log_map(R, eps: float = 0.0001):
     phi_sin = phi.sin()
 
     phi_denom = (
-        torch.clamp(phi_sin.abs(), eps) * phi_sin.sign()
-        + (phi_sin == 0).type_as(phi) * eps
+            torch.clamp(phi_sin.abs(), eps) * phi_sin.sign()
+            + (phi_sin == 0).type_as(phi) * eps
     )
 
     log_rot_hat = (phi / (2.0 * phi_denom))[:, None, None] * (R - R.permute(0, 2, 1))
