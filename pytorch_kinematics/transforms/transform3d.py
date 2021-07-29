@@ -113,16 +113,16 @@ class Transform3d:
     with a positive angle results in a counter clockwise rotation.
 
     This class assumes that transformations are applied on inputs which
-    are row vectors. The internal representation of the Nx4x4 transformation
+    are column vectors (different from pytorch3d!). The internal representation of the Nx4x4 transformation
     matrix is of the form:
 
     .. code-block:: python
 
         M = [
-                [Rxx, Ryx, Rzx, 0],
-                [Rxy, Ryy, Rzy, 0],
-                [Rxz, Ryz, Rzz, 0],
-                [Tx,  Ty,  Tz,  1],
+                [Rxx, Ryx, Rzx, Tx],
+                [Rxy, Ryy, Rzy, Ty],
+                [Rxz, Ryz, Rzz, Tz],
+                [0,  0,  0,  1],
             ]
 
     To apply the transformation to points which are row vectors, the M matrix
@@ -131,7 +131,7 @@ class Transform3d:
     .. code-block:: python
 
         points = [[0, 1, 2]]  # (1 x 3) xyz coordinates of a point
-        transformed_points = points * M
+        transformed_points = M * points.transpose(-1,-2)
 
     """
 
@@ -346,6 +346,9 @@ class Transform3d:
         points_batch = torch.cat([points_batch, ones], dim=2)
 
         composed_matrix = self.get_matrix()
+        # to multiply rows of points like this, we have to swap the rightmost column with the bottom row
+        composed_matrix[:, 3, :3] = composed_matrix[:, :3, 3]
+        composed_matrix[:, :3, 3] = 0
         points_out = _broadcast_bmm(points_batch, composed_matrix)
         denom = points_out[..., 3:]  # denominator
         if eps is not None:
@@ -470,7 +473,7 @@ class Translate(Transform3d):
 
         mat = torch.eye(4, dtype=dtype, device=device)
         mat = mat.view(1, 4, 4).repeat(N, 1, 1)
-        mat[:, 3, :3] = xyz
+        mat[:, :3, 3] = xyz
         self._matrix = mat
 
     def _get_matrix_inverse(self):
@@ -478,7 +481,7 @@ class Translate(Transform3d):
         Return the inverse of self._matrix.
         """
         inv_mask = self._matrix.new_ones([1, 4, 4])
-        inv_mask[0, 3, :3] = -1.0
+        inv_mask[0, :3, 3] = -1.0
         i_matrix = self._matrix * inv_mask
         return i_matrix
 

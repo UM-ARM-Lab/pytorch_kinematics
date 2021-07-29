@@ -148,5 +148,7 @@ for a survey of ways to do so. Note that IK may be better performed through othe
 # Credits
 - `pytorch_kinematics/transforms` is extracted from [pytorch3d](https://github.com/facebookresearch/pytorch3d) with minor extensions.
 This was done instead of including `pytorch3d` as a dependency because it is hard to install and most of its code is unrelated.
+  An important difference is that we use left hand multiplied transforms as is convention in robotics (T * pt) instead of their
+  right hand multiplied transforms.
 - `pytorch_kinematics/urdf_parser_py`, and `pytorch_kinematics/mjcf_parser` is extracted from [kinpy](https://github.com/neka-nat/kinpy), as well as the FK logic.
 This repository ports the logic to pytorch, parallelizes it, and provides some extensions.
