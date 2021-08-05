@@ -545,16 +545,17 @@ class Rotate(Transform3d):
         super().__init__(device=device)
         if not torch.is_tensor(R):
             R = torch.tensor(R, dtype=dtype, device=device)
+        R = R.to(dtype=dtype).to(device=device)
         if R.shape[-1] is 4:
             R = quaternion_to_matrix(R)
+        else:
+            _check_valid_rotation_matrix(R, tol=orthogonal_tol)
         if R.dim() == 2:
             R = R[None]
 
         if R.shape[-2:] != (3, 3):
             msg = "R must have shape (3, 3) or (N, 3, 3); got %s"
             raise ValueError(msg % repr(R.shape))
-        R = R.to(dtype=dtype).to(device=device)
-        _check_valid_rotation_matrix(R, tol=orthogonal_tol)
         N = R.shape[0]
         mat = torch.eye(4, dtype=dtype, device=device)
         mat = mat.view(1, 4, 4).repeat(N, 1, 1)
