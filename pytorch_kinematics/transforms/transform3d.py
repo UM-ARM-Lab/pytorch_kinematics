@@ -7,7 +7,8 @@ from typing import Optional
 
 import torch
 
-from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix
+from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix, \
+    euler_angles_to_matrix
 
 
 class Transform3d:
@@ -182,16 +183,16 @@ class Transform3d:
         if pos is not None:
             if not torch.is_tensor(pos):
                 pos = torch.tensor(pos, dtype=dtype, device=device)
-            if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] is 1:
+            if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
             self._matrix[:, :3, 3] = pos
 
         if rot is not None:
             if not torch.is_tensor(rot):
                 rot = torch.tensor(rot, dtype=dtype, device=device)
-            if rot.shape[-1] is 4:
+            if rot.shape[-1] == 4:
                 rot = quaternion_to_matrix(rot)
-            if rot.ndim is 3 and rot.shape[0] > 1 and self._matrix.shape[0] is 1:
+            if rot.ndim == 3 and rot.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
             self._matrix[:, :3, :3] = rot
 
@@ -546,8 +547,10 @@ class Rotate(Transform3d):
         if not torch.is_tensor(R):
             R = torch.tensor(R, dtype=dtype, device=device)
         R = R.to(dtype=dtype).to(device=device)
-        if R.shape[-1] is 4:
+        if R.shape[-1] == 4:
             R = quaternion_to_matrix(R)
+        elif R.shape[-1] == 3 and (len(R.shape) == 1 or R.shape[-2] != 3):
+            R = euler_angles_to_matrix(R, "ZYX")
         else:
             _check_valid_rotation_matrix(R, tol=orthogonal_tol)
         if R.dim() == 2:
