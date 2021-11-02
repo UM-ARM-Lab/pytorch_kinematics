@@ -12,7 +12,8 @@ setup(
     install_requires=[
         'torch',
         'numpy',
-        'transformations'
+        'transformations',
+        'absl-py'
     ],
     tests_require=[
         'pytest'
