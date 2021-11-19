@@ -68,10 +68,27 @@ def test_rotate():
     ).view(1, 3, 3)
     points_out = t.transform_points(points)
     normals_out = t.transform_normals(normals)
-    points_out_expected = torch.bmm(points, R)
-    normals_out_expected = torch.bmm(normals, R)
+    points_out_expected = torch.bmm(points, R.transpose(-1, -2))
+    normals_out_expected = torch.bmm(normals, R.transpose(-1, -2))
     assert torch.allclose(points_out, points_out_expected)
     assert torch.allclose(normals_out, normals_out_expected)
+    for i in range(3):
+        assert torch.allclose(points_out[0, i], R @ points[0, i])
+        assert torch.allclose(normals_out[0, i], R @ normals[0, i])
+
+
+def test_transform_combined():
+    R = tf.so3_exp_map(torch.randn((1, 3)))
+    tr = torch.randn((1, 3))
+    t = tf.Transform3d(rot=R, pos=tr)
+    N = 10
+    points = torch.randn((N, 3))
+    normals = torch.randn((N, 3))
+    points_out = t.transform_points(points)
+    normals_out = t.transform_normals(normals)
+    for i in range(N):
+        assert torch.allclose(points_out[i], R @ points[i] + tr)
+        assert torch.allclose(normals_out[i], R @ normals[i])
 
 
 def test_euler():

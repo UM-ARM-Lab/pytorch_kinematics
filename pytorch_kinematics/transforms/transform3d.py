@@ -134,7 +134,8 @@ class Transform3d:
     .. code-block:: python
 
         points = [[0, 1, 2]]  # (1 x 3) xyz coordinates of a point
-        transformed_points = M * points.transpose(-1,-2)
+        transformed_point = M @ points[0]
+        transformed_points = points @ M.transpose(-1,-2)
 
     Euler angles given as input by default are interpreted to be in "RXYZ" convention.
     Quaternions given as input should be in [w,x,y,z] order.
@@ -352,10 +353,7 @@ class Transform3d:
         ones = torch.ones(N, P, 1, dtype=points.dtype, device=points.device)
         points_batch = torch.cat([points_batch, ones], dim=2)
 
-        composed_matrix = self.get_matrix()
-        # to multiply rows of points like this, we have to swap the rightmost column with the bottom row
-        composed_matrix[:, 3, :3] = composed_matrix[:, :3, 3]
-        composed_matrix[:, :3, 3] = 0
+        composed_matrix = self.get_matrix().transpose(-1, -2)
         points_out = _broadcast_bmm(points_batch, composed_matrix)
         denom = points_out[..., 3:]  # denominator
         if eps is not None:
@@ -388,7 +386,7 @@ class Transform3d:
 
         # TODO: inverse is bad! Solve a linear system instead
         mat = composed_matrix[:, :3, :3]
-        normals_out = _broadcast_bmm(normals, mat.transpose(1, 2).inverse())
+        normals_out = _broadcast_bmm(normals, mat.inverse())
 
         # This doesn't pass unit tests. TODO investigate further
         # if self._lu is None:
@@ -614,7 +612,7 @@ class RotateAxisAngle(Rotate):
         # are row vectors. The rotation matrix returned from _axis_angle_rotation
         # is for transforming column vectors. Therefore we transpose this matrix.
         # R will always be of shape (N, 3, 3)
-        R = _axis_angle_rotation(axis, angle).transpose(1, 2)
+        R = _axis_angle_rotation(axis, angle)
         super().__init__(device=device, R=R)
 
 
