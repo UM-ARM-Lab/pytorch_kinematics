@@ -74,8 +74,22 @@ def test_rotate():
     assert torch.allclose(normals_out, normals_out_expected)
 
 
+def test_euler():
+    euler_angles = torch.tensor([1, 0, 0.5])
+    t = tf.Transform3d(rot=euler_angles)
+    sxyz_matrix = torch.tensor([[0.87758256, -0.47942554, 0., 0., ],
+                                [0.25903472, 0.47415988, -0.84147098, 0.],
+                                [0.40342268, 0.73846026, 0.54030231, 0.],
+                                [0., 0., 0., 1.]])
+    # from tf.transformations import euler_matrix
+    # print(euler_matrix(*euler_angles, "rxyz"))
+    # print(t.get_matrix())
+    assert torch.allclose(sxyz_matrix, t.get_matrix())
+
+
 if __name__ == "__main__":
     test_transform()
     test_translations()
     test_rotate_axis_angle()
     test_rotate()
+    test_euler()

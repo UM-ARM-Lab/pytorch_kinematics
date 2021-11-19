@@ -10,6 +10,8 @@ import torch
 from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix, \
     euler_angles_to_matrix
 
+DEFAULT_EULER_CONVENTION = "XYZ"
+
 
 class Transform3d:
     """
@@ -134,6 +136,7 @@ class Transform3d:
         points = [[0, 1, 2]]  # (1 x 3) xyz coordinates of a point
         transformed_points = M * points.transpose(-1,-2)
 
+    Euler angles given as input by default are interpreted to be in "RXYZ" convention.
     """
 
     def __init__(
@@ -192,6 +195,8 @@ class Transform3d:
                 rot = torch.tensor(rot, dtype=dtype, device=device)
             if rot.shape[-1] == 4:
                 rot = quaternion_to_matrix(rot)
+            elif rot.shape[-1] == 3 and (len(rot.shape) == 1 or rot.shape[-2] != 3):
+                rot = euler_angles_to_matrix(rot, DEFAULT_EULER_CONVENTION)
             if rot.ndim == 3 and rot.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
             self._matrix[:, :3, :3] = rot
@@ -550,7 +555,7 @@ class Rotate(Transform3d):
         if R.shape[-1] == 4:
             R = quaternion_to_matrix(R)
         elif R.shape[-1] == 3 and (len(R.shape) == 1 or R.shape[-2] != 3):
-            R = euler_angles_to_matrix(R, "ZYX")
+            R = euler_angles_to_matrix(R, DEFAULT_EULER_CONVENTION)
         else:
             _check_valid_rotation_matrix(R, tol=orthogonal_tol)
         if R.dim() == 2:
