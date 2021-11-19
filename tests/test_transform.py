@@ -87,9 +87,17 @@ def test_euler():
     assert torch.allclose(sxyz_matrix, t.get_matrix())
 
 
+def test_quaternions():
+    n = 10
+    q = tf.random_quaternions(n)
+    q_tf = tf.wxyz_to_xyzw(q)
+    assert torch.allclose(q, tf.xyzw_to_wxyz(q_tf))
+
+
 if __name__ == "__main__":
     test_transform()
     test_translations()
     test_rotate_axis_angle()
     test_rotate()
     test_euler()
+    test_quaternions()

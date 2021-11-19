@@ -137,6 +137,7 @@ class Transform3d:
         transformed_points = M * points.transpose(-1,-2)
 
     Euler angles given as input by default are interpreted to be in "RXYZ" convention.
+    Quaternions given as input should be in [w,x,y,z] order.
     """
 
     def __init__(
