@@ -143,10 +143,14 @@ class SerialChain(Chain):
         link_transforms = {}
         trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
         for f in self._serial_frames:
-            trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
-            link_transforms[f.link.name] = trans.compose(f.link.offset)
-            if f.joint.joint_type != "fixed":
+            if f.joint.joint_type == "fixed":  # If fixed
+                trans = trans.compose(
+                    f.get_transform(th[:, 0].view(N, 1)))  # Use th[0] because the value is not relevant
+            else:
+                trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
                 cnt += 1
+            link_transforms[f.link.name] = trans.compose(f.link.offset)
+
         return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms
 
     def jacobian(self, th, locations=None):
