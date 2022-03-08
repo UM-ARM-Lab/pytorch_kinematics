@@ -171,9 +171,8 @@ class Transform3d:
                 that is also passed in. The position overrides the position given in the
                 matrix argument, if any.
         """
-
         if matrix is None:
-            self._matrix = torch.eye(4, dtype=dtype, device=device).view(default_batch_size, 4, 4)
+            self._matrix = torch.eye(4, dtype=dtype, device=device).unsqueeze(0).repeat(default_batch_size, 1, 1)
         else:
             if matrix.ndim not in (2, 3):
                 raise ValueError('"matrix" has to be a 2- or a 3-dimensional tensor.')
