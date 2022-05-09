@@ -7,6 +7,7 @@ from .rotation_conversions import (
     matrix_to_euler_angles,
     matrix_to_quaternion,
     matrix_to_rotation_6d,
+    matrix_to_axis_angle,
     quaternion_apply,
     quaternion_invert,
     quaternion_multiply,
