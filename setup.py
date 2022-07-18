@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='pytorch_kinematics',
-    version='0.3.0',
+    version='0.3.1',
     packages=['pytorch_kinematics'],
     url='https://github.com/UM-ARM-Lab/pytorch_kinematics',
     license='MIT',
@@ -13,7 +13,8 @@ setup(
         'torch',
         'numpy',
         'transformations',
-        'absl-py'
+        'absl-py',
+        'lxml'
     ],
     tests_require=[
         'pytest'
