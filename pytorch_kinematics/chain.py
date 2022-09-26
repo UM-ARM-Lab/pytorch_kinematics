@@ -1,6 +1,7 @@
 import torch
-from . import jacobian
+
 import pytorch_kinematics.transforms as tf
+from . import jacobian
 
 
 def ensure_2d_tensor(th, dtype, device):
@@ -80,7 +81,9 @@ class Chain(object):
             frame.add_child(frame)
 
     @staticmethod
-    def _forward_kinematics(root, th_dict, world=tf.Transform3d()):
+    def _forward_kinematics(root, th_dict, world=None):
+        if world is None:
+            world = tf.Transform3d()
         link_transforms = {}
 
         th, N = ensure_2d_tensor(th_dict.get(root.joint.name, 0.0), world.dtype, world.device)
@@ -91,7 +94,9 @@ class Chain(object):
             link_transforms.update(Chain._forward_kinematics(child, th_dict, trans))
         return link_transforms
 
-    def forward_kinematics(self, th, world=tf.Transform3d()):
+    def forward_kinematics(self, th, world=None):
+        if world is None:
+            world = tf.Transform3d()
         if not isinstance(th, dict):
             jn = self.get_joint_parameter_names()
             assert len(jn) == len(th)
@@ -134,7 +139,9 @@ class SerialChain(Chain):
             names.append(f.joint.name)
         return names
 
-    def forward_kinematics(self, th, world=tf.Transform3d(), end_only=True):
+    def forward_kinematics(self, th, world=None, end_only=True):
+        if world is None:
+            world = tf.Transform3d()
         if world.dtype != self.dtype or world.device != self.device:
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         th, N = ensure_2d_tensor(th, self.dtype, self.device)

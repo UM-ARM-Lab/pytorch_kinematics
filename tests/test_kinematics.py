@@ -120,6 +120,11 @@ def test_cuda():
         chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
         chain = chain.to(dtype=dtype, device=d)
 
+        # NOTE: do it twice because we previously had an issue with default arguments
+        #  like joint=Joint() causing spooky behavior
+        chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+        chain = chain.to(dtype=dtype, device=d)
+
         ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
         tg = ret['arm_wrist_roll']
         pos, rot = quat_pos_from_transform3d(tg)
@@ -185,4 +190,4 @@ if __name__ == "__main__":
     test_fk_mjcf()
     test_cuda()
     test_urdf()
-    # test_fk_mjcf_humanoid()
+    test_fk_mjcf_humanoid()
