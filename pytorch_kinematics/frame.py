@@ -5,8 +5,9 @@ import torch
 class Visual(object):
     TYPES = ['box', 'cylinder', 'sphere', 'capsule', 'mesh']
 
-    def __init__(self, offset=tf.Transform3d(),
-                 geom_type=None, geom_param=None):
+    def __init__(self, offset=None, geom_type=None, geom_param=None):
+        if offset is None:
+            offset = tf.Transform3d()
         self.offset = offset
         self.geom_type = geom_type
         self.geom_param = geom_param
@@ -18,8 +19,9 @@ class Visual(object):
 
 
 class Link(object):
-    def __init__(self, name=None, offset=tf.Transform3d(),
-                 visuals=()):
+    def __init__(self, name=None, offset=None, visuals=()):
+        if offset is None:
+            offset = tf.Transform3d()
         self.name = name
         self.offset = offset
         self.visuals = visuals
@@ -37,8 +39,10 @@ class Link(object):
 class Joint(object):
     TYPES = ['fixed', 'revolute', 'prismatic']
 
-    def __init__(self, name=None, offset=tf.Transform3d(), joint_type='fixed', axis=(0.0, 0.0, 1.0),
+    def __init__(self, name=None, offset=None, joint_type='fixed', axis=(0.0, 0.0, 1.0),
                  dtype=torch.float32, device="cpu"):
+        if offset is None:
+            offset = tf.Transform3d()
         self.name = name
         self.offset = offset
         if joint_type not in self.TYPES:
@@ -67,11 +71,10 @@ class Joint(object):
 
 
 class Frame(object):
-    def __init__(self, name=None, link=Link(),
-                 joint=Joint(), children=()):
+    def __init__(self, name=None, link=None, joint=None, children=()):
         self.name = 'None' if name is None else name
-        self.link = link
-        self.joint = joint
+        self.link = link if link is not None else Link()
+        self.joint = joint if joint is not None else Joint()
         self.children = children
 
     def __str__(self, level=0):

@@ -1,18 +1,23 @@
-from . import frame
-from . import chain
-from . import mjcf_parser
 import pytorch_kinematics.transforms as tf
+from dm_control import mjcf
+
+from . import chain
+from . import frame
 
 JOINT_TYPE_MAP = {'hinge': 'revolute'}
 
 
-def geoms_to_visuals(geom, base=tf.Transform3d()):
+def geoms_to_visuals(geom, base=None):
+    if base is None:
+        base = tf.Transform3d()
     visuals = []
     for g in geom:
         if g.type == 'capsule':
             param = (g.size[0], g.fromto)
         elif g.type == 'sphere':
             param = g.size[0]
+        elif g.type == 'mesh':
+            param =  None
         else:
             raise ValueError('Invalid geometry type %s.' % g.type)
         visuals.append(frame.Visual(offset=base.compose(tf.Transform3d(rot=g.quat, pos=g.pos)),
@@ -21,19 +26,25 @@ def geoms_to_visuals(geom, base=tf.Transform3d()):
     return visuals
 
 
-def body_to_link(body, base=tf.Transform3d()):
+def body_to_link(body, base=None):
+    if base is None:
+        base = tf.Transform3d()
     return frame.Link(body.name,
                       offset=base.compose(tf.Transform3d(rot=body.quat, pos=body.pos)))
 
 
-def joint_to_joint(joint, base=tf.Transform3d()):
+def joint_to_joint(joint, base=None):
+    if base is None:
+        base = tf.Transform3d()
     return frame.Joint(joint.name,
                        offset=base.compose(tf.Transform3d(pos=joint.pos)),
                        joint_type=JOINT_TYPE_MAP[joint.type],
                        axis=joint.axis)
 
 
-def add_composite_joint(root_frame, joints, base=tf.Transform3d()):
+def add_composite_joint(root_frame, joints, base=None):
+    if base is None:
+        base = tf.Transform3d()
     if len(joints) > 0:
         root_frame.children = root_frame.children + (frame.Frame(link=frame.Link(name=root_frame.link.name + '_child'),
                                                                  joint=joint_to_joint(joints[0], base)),)
@@ -57,6 +68,11 @@ def _build_chain_recurse(root_frame, root_body):
         next_frame.name = b.name + "_frame"
         next_frame.link = body_to_link(b, jbase)
         _build_chain_recurse(next_frame, b)
+    for site in root_body.site:
+        cur_frame.children = cur_frame.children + (frame.Frame(),)
+        next_frame = cur_frame.children[-1]
+        next_frame.name = site.name + "_frame"
+        next_frame.link = body_to_link(site, jbase)
 
 
 def build_chain_from_mjcf(data):
@@ -73,7 +89,7 @@ def build_chain_from_mjcf(data):
     chain.Chain
         Chain object created from MJCF.
     """
-    model = mjcf_parser.from_xml_string(data)
+    model = mjcf.from_xml_string(data)
     root_body = model.worldbody.body[0]
     root_frame = frame.Frame(root_body.name + "_frame",
                              link=body_to_link(root_body),
