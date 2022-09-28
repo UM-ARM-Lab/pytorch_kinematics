@@ -1,7 +1,9 @@
+import os
 import math
 
 import torch
 import pytorch_kinematics as pk
+from pytorch_kinematics import cfg
 
 
 def quat_pos_from_transform3d(tg):
@@ -62,7 +64,8 @@ def test_fkik():
 
 
 def test_urdf():
-    chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
+                                            "lbr_iiwa_link_7")
     print(chain)
     print(chain.get_joint_parameter_names())
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
@@ -98,7 +101,7 @@ def test_urdf():
 
 # test robot with prismatic and fixed joints
 def test_fk_simple_arm():
-    chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+    chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
     # print(chain)
     # print(chain.get_joint_parameter_names())
     ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
@@ -117,7 +120,7 @@ def test_cuda():
     if torch.cuda.is_available():
         d = "cuda"
         dtype = torch.float64
-        chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+        chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
         chain = chain.to(dtype=dtype, device=d)
 
         # NOTE: do it twice because we previously had an issue with default arguments
@@ -159,7 +162,7 @@ def test_cuda():
 
 # test more complex robot and the MJCF parser
 def test_fk_mjcf():
-    chain = pk.build_chain_from_mjcf(open("ant.xml").read())
+    chain = pk.build_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "ant.xml")).read())
     print(chain)
     print(chain.get_joint_parameter_names())
     th = {'hip_1': 1.0, 'ankle_1': 1}
@@ -176,7 +179,7 @@ def test_fk_mjcf():
 
 
 def test_fk_mjcf_humanoid():
-    chain = pk.build_chain_from_mjcf(open("humanoid.xml").read())
+    chain = pk.build_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "humanoid.xml")).read())
     print(chain)
     print(chain.get_joint_parameter_names())
     th = {'left_knee': 0.0, 'right_knee': 0.0}
