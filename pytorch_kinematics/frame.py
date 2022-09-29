@@ -1,5 +1,6 @@
-import pytorch_kinematics.transforms as tf
 import torch
+
+import pytorch_kinematics.transforms as tf
 
 
 class Visual(object):
@@ -104,8 +105,27 @@ class Frame(object):
         dtype = self.joint.axis.dtype
         d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
-            rot = tf.axis_angle_to_quaternion(theta * self.joint.axis)
-            t = tf.Transform3d(rot=rot, dtype=dtype, device=d)
+            # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
+            c = torch.cos(theta)  # NOTE: cos is sort that precise for float32, you may want to use float64
+            one_minus_c = 1 - c
+            s = torch.sin(theta)
+            kx, ky, kz = self.joint.axis
+            r00 = c + kx * kx * one_minus_c
+            r01 = kx * ky * one_minus_c - kz * s
+            r02 = kx * kz * one_minus_c + ky * s
+            r10 = ky * kx * one_minus_c + kz * s
+            r11 = c + ky * ky * one_minus_c
+            r12 = ky * kz * one_minus_c - kx * s
+            r20 = kz * kx * one_minus_c - ky * s
+            r21 = kz * ky * one_minus_c + kx * s
+            r22 = c + kz * kz * one_minus_c
+            rot = torch.stack([torch.cat([r00, r01, r02], -1),
+                               torch.cat([r10, r11, r12], -1),
+                               torch.cat([r20, r21, r22], -1)], -2)
+            matrix = torch.eye(4, dtype=dtype, device=d).unsqueeze(0).repeat(theta.shape[0], 1, 1)
+            matrix[:, :3, :3] = rot
+            matrix[:, :3, :3] = rot
+            t = tf.Transform3d(matrix=matrix, dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
             t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)
         elif self.joint.joint_type == 'fixed':

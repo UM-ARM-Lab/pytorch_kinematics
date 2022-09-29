@@ -150,39 +150,23 @@ class SerialChain(Chain):
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         th, N = ensure_2d_tensor(th, self.dtype, self.device)
 
-        if end_only:
-            cnt = 0
-            trans = world
-            for f in self._serial_frames:
-                if f.joint.offset is not None:
-                    if f.joint.joint_type == "fixed":  # If fixed
-                        # Use th[0] because the value is not relevant
-                        joint_trans = f.get_transform(th[:, 0].reshape(N, 1))
-                    else:
-                        joint_trans = f.get_transform(th[:, cnt].reshape(N, 1))
-                        cnt += 1
-                    trans = trans.compose(joint_trans)  # joint offset to parent + the joint transform itself
-                    # do the joint thing
-                if f.link.offset is not None:
-                    trans = trans.compose(f.link.offset)
-            return trans
-        else:
-            cnt = 0
-            link_transforms = {}
-            trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
-            for f in self._serial_frames:
-                if f.joint.joint_type == "fixed":  # If fixed
-                    # Use th[0] because the value is not relevant
-                    trans = trans.compose(f.get_transform(th[:, 0].view(N, 1)))
-                else:
-                    trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
-                    cnt += 1
+        cnt = 0
+        link_transforms = {}
+        trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
+        for f in self._serial_frames:
+            if f.joint.joint_type == "fixed":  # If fixed
+                # Use th[0] because the value is not relevant
+                trans = trans.compose(f.get_transform(th[:, 0].view(N, 1)))
+            else:
+                trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
+                cnt += 1
 
-                if f.link.offset is not None:
-                    link_transforms[f.link.name] = trans.compose(f.link.offset)
-                else:
-                    link_transforms[f.link.name] = trans
-            return link_transforms
+            if f.link.offset is not None:
+                link_transforms[f.link.name] = trans.compose(f.link.offset)
+            else:
+                link_transforms[f.link.name] = trans
+
+        return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms
 
     def jacobian(self, th, locations=None):
         if locations is not None:

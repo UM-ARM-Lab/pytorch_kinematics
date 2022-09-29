@@ -12,6 +12,7 @@ from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, qu
 
 DEFAULT_EULER_CONVENTION = "XYZ"
 
+count = 0
 
 
 class Transform3d:
@@ -255,6 +256,8 @@ class Transform3d:
             A transformation matrix representing the composed inputs.
         """
         composed_matrix = self._matrix
+        global count
+        count += 1
         for other in self._transforms:
             other_matrix = other.get_matrix()
             composed_matrix = _broadcast_bmm(composed_matrix, other_matrix)

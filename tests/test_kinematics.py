@@ -66,14 +66,15 @@ def test_fkik():
 def test_urdf():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
+    chain.to(dtype=torch.float64)
     print(chain)
     print(chain.get_joint_parameter_names())
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
     ret = chain.forward_kinematics(th, end_only=False)
     tg = ret['lbr_iiwa_link_7']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0]))
-    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01]))
+    assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01], dtype=torch.float64))
 
     N = 1000
     d = "cuda" if torch.cuda.is_available() else "cpu"
@@ -102,13 +103,14 @@ def test_urdf():
 # test robot with prismatic and fixed joints
 def test_fk_simple_arm():
     chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
+    chain.to(dtype=torch.float64)
     # print(chain)
     # print(chain.get_joint_parameter_names())
     ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
     tg = ret['arm_wrist_roll']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678]))
-    assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5]))
+    assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=torch.float64))
 
     N = 100
     ret = chain.forward_kinematics({'arm_elbow_pan_joint': torch.rand(N, 1), 'arm_wrist_lift_joint': torch.rand(N, 1)})
