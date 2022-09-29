@@ -1,4 +1,5 @@
 import torch
+
 import pytorch_kinematics.transforms as tf
 
 
@@ -111,7 +112,20 @@ def test_quaternions():
     assert torch.allclose(q, tf.xyzw_to_wxyz(q_tf))
 
 
+def test_compose():
+    import torch
+    theta = 1.5707
+    a2b = tf.Transform3d(pos=[0.1, 0, 0])  # joint.offset
+    b2j = tf.Transform3d(rot=tf.axis_angle_to_quaternion(theta * torch.tensor([0.0, 0, 1])))  # joint.axis
+    j2c = tf.Transform3d(pos=[0.1, 0, 0])  # link.offset ?
+    a2c = a2b.compose(b2j, j2c)
+    m = a2c.get_matrix()
+    print(m)
+    print(a2c.transform_points(torch.zeros([1, 3])))
+
+
 if __name__ == "__main__":
+    test_compose()
     test_transform()
     test_translations()
     test_rotate_axis_angle()
