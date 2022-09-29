@@ -69,10 +69,7 @@ def add_composite_joint(root_frame, joints, base=None):
 def _build_chain_recurse(root_frame, root_body):
     base = root_frame.link.offset
     cur_frame, cur_base = add_composite_joint(root_frame, root_body.joint, base)
-    # if len(root_body.joint) > 0:
-    #     cur_frame.link.visuals = geoms_to_visuals(root_body.geom, base)
-    # else:
-    #     cur_frame.link.visuals = geoms_to_visuals(root_body.geom)
+    cur_frame.link.visuals = geoms_to_visuals(root_body.geom)
     for b in root_body.body:
         cur_frame.children = cur_frame.children + (frame.Frame(),)
         next_frame = cur_frame.children[-1]
