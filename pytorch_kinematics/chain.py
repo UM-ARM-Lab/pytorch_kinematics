@@ -2,6 +2,8 @@ import torch
 
 import pytorch_kinematics.transforms as tf
 from . import jacobian
+from .frame import my_axis_angle_to_matrix
+from .transforms.transform3d import _broadcast_bmm
 
 
 def ensure_2d_tensor(th, dtype, device):
@@ -150,7 +152,7 @@ class SerialChain(Chain):
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         th, N = ensure_2d_tensor(th, self.dtype, self.device)
 
-        cnt = 0
+        theta_idx = 0
         link_transforms = {}
         trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
         for f in self._serial_frames:
@@ -158,8 +160,8 @@ class SerialChain(Chain):
                 # Use th[0] because the value is not relevant
                 trans = trans.compose(f.get_transform(th[:, 0].view(N, 1)))
             else:
-                trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
-                cnt += 1
+                trans = trans.compose(f.get_transform(th[:, theta_idx].view(N, 1)))
+                theta_idx += 1
 
             if f.link.offset is not None:
                 link_transforms[f.link.name] = trans.compose(f.link.offset)

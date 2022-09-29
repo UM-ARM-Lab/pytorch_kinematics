@@ -36,7 +36,7 @@ def body_to_link(body, base=None):
     if base is None:
         return frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
     else:
-        return frame.Link(body.name, offset=base.compose(tf.Transform3d(rot=body.quat, pos=body.pos)))
+        return frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
 
 
 def joint_to_joint(joint, base=None):
@@ -69,25 +69,21 @@ def add_composite_joint(root_frame, joints, base=None):
 def _build_chain_recurse(root_frame, root_body):
     base = root_frame.link.offset
     cur_frame, cur_base = add_composite_joint(root_frame, root_body.joint, base)
-    if cur_base is None:
-        jbase = base
-    else:
-        jbase = cur_base.inverse().compose(base)
-    if len(root_body.joint) > 0:
-        cur_frame.link.visuals = geoms_to_visuals(root_body.geom, jbase)
-    else:
-        cur_frame.link.visuals = geoms_to_visuals(root_body.geom)
+    # if len(root_body.joint) > 0:
+    #     cur_frame.link.visuals = geoms_to_visuals(root_body.geom, base)
+    # else:
+    #     cur_frame.link.visuals = geoms_to_visuals(root_body.geom)
     for b in root_body.body:
         cur_frame.children = cur_frame.children + (frame.Frame(),)
         next_frame = cur_frame.children[-1]
         next_frame.name = b.name + "_frame"
-        next_frame.link = body_to_link(b, jbase)
+        next_frame.link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos))
         _build_chain_recurse(next_frame, b)
     for site in root_body.site:
         cur_frame.children = cur_frame.children + (frame.Frame(),)
         next_frame = cur_frame.children[-1]
         next_frame.name = site.name + "_frame"
-        next_frame.link = body_to_link(site, jbase)
+        next_frame.link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
 
 
 def build_chain_from_mjcf(data):
