@@ -420,9 +420,35 @@ def quaternion_apply(quaternion, point):
     return out[..., 1:]
 
 
-def axis_angle_to_matrix(axis_angle):
+def axis_angle_to_matrix(axis, theta, device, dtype):
+    # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
+    c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
+    one_minus_c = 1 - c
+    s = torch.sin(theta)
+    kx, ky, kz = axis
+    r00 = c + kx * kx * one_minus_c
+    r01 = kx * ky * one_minus_c - kz * s
+    r02 = kx * kz * one_minus_c + ky * s
+    r10 = ky * kx * one_minus_c + kz * s
+    r11 = c + ky * ky * one_minus_c
+    r12 = ky * kz * one_minus_c - kx * s
+    r20 = kz * kx * one_minus_c - ky * s
+    r21 = kz * ky * one_minus_c + kx * s
+    r22 = c + kz * kz * one_minus_c
+    rot = torch.stack([torch.cat([r00, r01, r02], -1),
+                       torch.cat([r10, r11, r12], -1),
+                       torch.cat([r20, r21, r22], -1)], -2)
+    matrix = torch.eye(4, dtype=dtype, device=device).unsqueeze(0).repeat(theta.shape[0], 1, 1)
+    matrix[:, :3, :3] = rot
+    matrix[:, :3, :3] = rot
+    return matrix
+
+
+def axis_angle_to_matrix_using_quat(axis_angle):
     """
     Convert rotations given as axis/angle to rotation matrices.
+    This uses quaternions as an intermediate representation,
+    and is a little slower than the other version
 
     Args:
         axis_angle: Rotations given as a vector in axis angle form,
