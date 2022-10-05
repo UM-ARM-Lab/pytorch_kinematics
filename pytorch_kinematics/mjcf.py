@@ -27,7 +27,7 @@ def _build_chain_recurse(parent_frame, parent_body):
     for b in parent_body.body:
         n_joints = len(b.joint)
         if n_joints > 1:
-            raise ValueError("composite joints not supported (temporarily... we need a test first!)")
+            raise ValueError("composite joints not supported (could implement this if needed)")
         if n_joints == 1:
             joint = b.joint[0]
             child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis, joint_type=JOINT_TYPE_MAP[joint.type])

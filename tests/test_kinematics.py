@@ -196,13 +196,14 @@ def test_cuda():
             assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
 
-def test_fk_mjcf_humanoid():
-    chain = pk.build_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "humanoid.xml")).read())
-    print(chain)
-    print(chain.get_joint_parameter_names())
-    th = {'left_knee': 0.0, 'right_knee': 0.0}
-    ret = chain.forward_kinematics(th)
-    print(ret)
+# FIXME: comment out because compound joints are no longer implemented
+# def test_fk_mjcf_humanoid():
+#     chain = pk.build_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "humanoid.xml")).read())
+#     print(chain)
+#     print(chain.get_joint_parameter_names())
+#     th = {'left_knee': 0.0, 'right_knee': 0.0}
+#     ret = chain.forward_kinematics(th)
+#     print(ret)
 
 
 if __name__ == "__main__":
@@ -212,4 +213,4 @@ if __name__ == "__main__":
     test_cuda()
     test_urdf()
     test_urdf_serial()
-    test_fk_mjcf_humanoid()
+    # test_fk_mjcf_humanoid()
