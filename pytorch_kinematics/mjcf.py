@@ -1,4 +1,3 @@
-import numpy as np
 from dm_control import mjcf
 
 import pytorch_kinematics.transforms as tf
@@ -8,7 +7,7 @@ from . import frame
 JOINT_TYPE_MAP = {'hinge': 'revolute'}
 
 
-def geoms_to_visuals(geom, base=None):
+def geoms_to_visuals(geom):
     visuals = []
     for g in geom:
         if g.type == 'capsule':
@@ -19,68 +18,30 @@ def geoms_to_visuals(geom, base=None):
             param = None
         else:
             raise ValueError('Invalid geometry type %s.' % g.type)
-        if base is None:
-            visuals.append(
-                frame.Visual(offset=tf.Transform3d(rot=g.quat, pos=g.pos), geom_type=g.type, geom_param=param))
-        else:
-            if g.pos is None and g.quat is None:
-                visual = frame.Visual(offset=base, geom_type=g.type, geom_param=param)
-            else:
-                visual = frame.Visual(offset=base.compose(tf.Transform3d(rot=g.quat, pos=g.pos)), geom_type=g.type,
-                                      geom_param=param)
-            visuals.append(visual)
+        visuals.append(frame.Visual(offset=tf.Transform3d(rot=g.quat, pos=g.pos), geom_type=g.type, geom_param=param))
     return visuals
 
 
-def body_to_link(body, base=None):
-    if base is None:
-        return frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
-    else:
-        return frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
-
-
-def joint_to_joint(joint, base=None):
-    if base is None:
-        return frame.Joint(joint.name, offset=tf.Transform3d(pos=joint.pos), joint_type=JOINT_TYPE_MAP[joint.type],
-                           axis=joint.axis)
-    elif np.allclose(joint.pos, np.zeros(3)):
-        return frame.Joint(joint.name, offset=base, joint_type=JOINT_TYPE_MAP[joint.type], axis=joint.axis)
-    else:
-        return frame.Joint(joint.name, offset=base.compose(tf.Transform3d(pos=joint.pos)),
-                           joint_type=JOINT_TYPE_MAP[joint.type], axis=joint.axis)
-
-
-def add_composite_joint(root_frame, joints, base=None):
-    if len(joints) > 0:
-        child_frame = frame.Frame(
-            name=joints[0].name,
-            link=frame.Link(name=root_frame.link.name + '_child'),
-            joint=joint_to_joint(joints[0], base))
-        root_frame.children = root_frame.children + (child_frame,)
-        ret, offset = add_composite_joint(root_frame.children[-1], joints[1:])
-        if root_frame.joint.offset is None:
-            return ret, offset
+def _build_chain_recurse(parent_frame, parent_body):
+    parent_frame.link.visuals = geoms_to_visuals(parent_body.geom)
+    for b in parent_body.body:
+        n_joints = len(b.joint)
+        if n_joints > 1:
+            raise ValueError("composite joints not supported (temporarily... we need a test first!)")
+        if n_joints == 1:
+            joint = b.joint[0]
+            child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis, joint_type=JOINT_TYPE_MAP[joint.type])
         else:
-            return ret, root_frame.joint.offset.compose(offset)
-    else:
-        return root_frame, root_frame.joint.offset
+            child_joint = frame.Joint(b.name + "_imaginary_fixed_joint")
+        child_link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos))
+        child_frame = frame.Frame(name=b.name, link=child_link, joint=child_joint)
+        parent_frame.children = parent_frame.children + (child_frame,)
+        _build_chain_recurse(child_frame, b)
 
-
-def _build_chain_recurse(root_frame, root_body):
-    base = root_frame.link.offset
-    cur_frame, cur_base = add_composite_joint(root_frame, root_body.joint, base)
-    cur_frame.link.visuals = geoms_to_visuals(root_body.geom)
-    for b in root_body.body:
-        cur_frame.children = cur_frame.children + (frame.Frame(),)
-        next_frame = cur_frame.children[-1]
-        next_frame.name = b.name + "_frame"
-        next_frame.link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos))
-        _build_chain_recurse(next_frame, b)
-    for site in root_body.site:
-        cur_frame.children = cur_frame.children + (frame.Frame(),)
-        next_frame = cur_frame.children[-1]
-        next_frame.name = site.name + "_frame"
-        next_frame.link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
+    for site in parent_body.site:
+        site_link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
+        site_frame = frame.Frame(name=site.name, link=site_link)
+        parent_frame.children = parent_frame.children + (site_frame,)
 
 
 def build_chain_from_mjcf(data):
@@ -100,7 +61,8 @@ def build_chain_from_mjcf(data):
     model = mjcf.from_xml_string(data)
     root_body = model.worldbody.body[0]
     root_frame = frame.Frame(root_body.name + "_frame",
-                             link=body_to_link(root_body),
+                             link=frame.Link(root_body.name,
+                                             offset=tf.Transform3d(rot=root_body.quat, pos=root_body.pos)),
                              joint=frame.Joint())
     _build_chain_recurse(root_frame, root_body)
     return chain.Chain(root_frame)
@@ -125,5 +87,5 @@ def build_serial_chain_from_mjcf(data, end_link_name, root_link_name=""):
         SerialChain object created from MJCF.
     """
     mjcf_chain = build_chain_from_mjcf(data)
-    return chain.SerialChain(mjcf_chain, end_link_name + "_frame",
-                             "" if root_link_name == "" else root_link_name + "_frame")
+    return chain.SerialChain(mjcf_chain, end_link_name,
+                             "" if root_link_name == "" else root_link_name)
