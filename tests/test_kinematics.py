@@ -39,7 +39,7 @@ def test_fk_mjcf():
 
 
 def test_fk_serial_mjcf():
-    chain = pk.build_serial_chain_from_mjcf(open("ant.xml").read(), 'front_left_foot')
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "ant.xml")).read(), 'front_left_foot')
     chain = chain.to(dtype=torch.float64)
     tg = chain.forward_kinematics([1.0, 1.0])
     pos, rot = quat_pos_from_transform3d(tg)
