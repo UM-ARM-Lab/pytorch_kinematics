@@ -1,6 +1,8 @@
-import os
 import math
+import os
+
 import torch
+
 import pytorch_kinematics as pk
 from pytorch_kinematics import cfg
 
@@ -11,12 +13,13 @@ def test_correctness():
     th = torch.tensor([0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0])
     J = chain.jacobian(th)
 
-    assert torch.allclose(J, torch.tensor([[[0, 1.41421356e-02, 0, 2.82842712e-01, 0, 0, 0],
-                                            [-6.60827561e-01, 0, -4.57275649e-01, 0, 5.72756493e-02, 0, 0],
-                                            [0, 6.60827561e-01, 0, -3.63842712e-01, 0, 8.10000000e-02, 0],
-                                            [0, 0, -7.07106781e-01, 0, -7.07106781e-01, 0, -1],
-                                            [0, 1, 0, -1, 0, 1, 0],
-                                            [1, 0, 7.07106781e-01, 0, -7.07106781e-01, 0, 0]]]))
+    J_expected = torch.tensor([[[0, 1.41421356e-02, 0, 2.82842712e-01, 0, 0, 0],
+                                [-6.60827561e-01, 0, -4.57275649e-01, 0, 5.72756493e-02, 0, 0],
+                                [0, 6.60827561e-01, 0, -3.63842712e-01, 0, 8.10000000e-02, 0],
+                                [0, 0, -7.07106781e-01, 0, -7.07106781e-01, 0, -1],
+                                [0, 1, 0, -1, 0, 1, 0],
+                                [1, 0, 7.07106781e-01, 0, -7.07106781e-01, 0, 0]]])
+    assert torch.allclose(J, J_expected, atol=1e-7)
 
     chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
     chain = pk.SerialChain(chain, "arm_wrist_roll_frame")
@@ -43,7 +46,7 @@ def test_jacobian_at_different_loc_than_ee():
                           [0., 1., 0., -1., 0., 1., 0.],
                           [1., 0., 0.70710678, 0., -0.70710678, -0., 0.]]])
 
-    assert torch.allclose(J, J_c1)
+    assert torch.allclose(J, J_c1, atol=1e-7)
 
     loc = torch.tensor([-0.1, 0.05, 0])
     J = chain.jacobian(th, locations=loc)
@@ -54,13 +57,13 @@ def test_jacobian_at_different_loc_than_ee():
                           [0., 1., 0., -1., 0., 1., 0.],
                           [1., 0., 0.70710678, 0., -0.70710678, -0., 0.]]])
 
-    assert torch.allclose(J, J_c2)
+    assert torch.allclose(J, J_c2, atol=1e-7)
 
     # check that batching the location is fine
     th = th.repeat(2, 1)
     loc = torch.tensor([[0.1, 0, 0], [-0.1, 0.05, 0]])
     J = chain.jacobian(th, locations=loc)
-    assert torch.allclose(J, torch.cat((J_c1, J_c2)))
+    assert torch.allclose(J, torch.cat((J_c1, J_c2)), atol=1e-7)
 
 
 def test_parallel():
