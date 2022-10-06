@@ -1,7 +1,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
 from .rotation_conversions import (
-    axis_angle_to_matrix,
+    unified_axis_angle_to_matrix,
+    axis_and_angle_to_matrix,
     axis_angle_to_quaternion,
     euler_angles_to_matrix,
     matrix_to_euler_angles,
@@ -28,6 +29,5 @@ from .so3 import (
     so3_rotation_angle,
 )
 from .transform3d import Rotate, RotateAxisAngle, Scale, Transform3d, Translate
-
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]
