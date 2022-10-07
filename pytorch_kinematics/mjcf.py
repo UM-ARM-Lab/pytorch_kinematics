@@ -22,6 +22,10 @@ def geoms_to_visuals(geom):
     return visuals
 
 
+def string_to_bool(bool_str: str):
+    return bool_str in ['True', 'true']
+
+
 def _build_chain_recurse(parent_frame, parent_body):
     parent_frame.link.visuals = geoms_to_visuals(parent_body.geom)
     for b in parent_body.body:
@@ -30,7 +34,12 @@ def _build_chain_recurse(parent_frame, parent_body):
             raise ValueError("composite joints not supported (could implement this if needed)")
         if n_joints == 1:
             joint = b.joint[0]
-            child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis, joint_type=JOINT_TYPE_MAP[joint.type])
+            if string_to_bool(joint.limited):
+                child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis,
+                                          joint_type=JOINT_TYPE_MAP[joint.type],
+                                          limits=joint.range)
+            else:
+                child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis, joint_type=JOINT_TYPE_MAP[joint.type])
         else:
             child_joint = frame.Joint(b.name + "_imaginary_fixed_joint")
         child_link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos))

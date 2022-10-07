@@ -57,10 +57,25 @@ class Chain(object):
                 return ret
         return None
 
+    @staticmethod
+    def _find_joint_recursive(name, frame):
+        for child in frame.children:
+            if child.joint.name == name:
+                return child.joint
+            ret = Chain._find_joint_recursive(name, child)
+            if not ret is None:
+                return ret
+        return None
+
     def find_link(self, name):
         if self._root.link.name == name:
             return self._root.link
         return self._find_link_recursive(name, self._root)
+
+    def find_joint(self, name):
+        if self._root.joint.name == name:
+            return self._root.joint
+        return self._find_joint_recursive(name, self._root)
 
     @staticmethod
     def _get_joint_parameter_names(frame, exclude_fixed=True):
@@ -106,6 +121,14 @@ class Chain(object):
     def forward_kinematics(self, th, world=None):
         if world is None:
             world = tf.Transform3d()
+
+        th_dict = self.ensure_dict_of_2d_tensors(th)
+
+        if world.dtype != self.dtype or world.device != self.device:
+            world = world.to(dtype=self.dtype, device=self.device, copy=True)
+        return self._forward_kinematics(self._root, th_dict, world)
+
+    def ensure_dict_of_2d_tensors(self, th):
         if not isinstance(th, dict):
             th, _ = ensure_2d_tensor(th, self.dtype, self.device)
             jn = self.get_joint_parameter_names()
@@ -113,10 +136,25 @@ class Chain(object):
             th_dict = dict((j, th[..., i]) for i, j in enumerate(jn))
         else:
             th_dict = {k: ensure_2d_tensor(v, self.dtype, self.device)[0] for k, v in th.items()}
+        return th_dict
 
-        if world.dtype != self.dtype or world.device != self.device:
-            world = world.to(dtype=self.dtype, device=self.device, copy=True)
-        return self._forward_kinematics(self._root, th_dict, world)
+    def clamp(self, th):
+        th_dict = self.ensure_dict_of_2d_tensors(th)
+
+        out_th_dict = {}
+        for joint_name, joint_position in th_dict.items():
+            joint = self.find_joint(joint_name)
+            joint_position_clamped = joint.clamp(joint_position)
+            out_th_dict[joint_name] = joint_position_clamped
+
+        return self.match_input_type(out_th_dict, th)
+
+    @staticmethod
+    def match_input_type(th_dict, th):
+        if isinstance(th, dict):
+            return th_dict
+        else:
+            return torch.stack([v for v in th_dict.values()], dim=-1)
 
 
 class SerialChain(Chain):
@@ -179,3 +217,6 @@ class SerialChain(Chain):
         if locations is not None:
             locations = tf.Transform3d(pos=locations)
         return jacobian.calc_jacobian(self, th, tool=locations)
+
+    def clamp(self, th: torch.tensor):
+        return th
