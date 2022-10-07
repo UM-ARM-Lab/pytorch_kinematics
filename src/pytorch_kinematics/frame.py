@@ -22,7 +22,8 @@ class Visual(object):
 
 
 class Link(object):
-    def __init__(self, name=None, offset=None, visuals=()):
+    def __init__(self, name=None, offset=None, mass=0.0, visuals=()):
+        self.mass = mass
         if offset is None:
             self.offset = None
         else:
@@ -45,7 +46,7 @@ class Joint(object):
     TYPES = ['fixed', 'revolute', 'prismatic']
 
     def __init__(self, name=None, offset=None, joint_type='fixed', axis=(0.0, 0.0, 1.0),
-                 dtype=torch.float32, device="cpu"):
+                 dtype=torch.float32, device="cpu", limits=None):
         if offset is None:
             self.offset = None
         else:
@@ -64,11 +65,19 @@ class Joint(object):
         # normalize axis to have norm 1 (needed for correct representation scaling with theta)
         self.axis = self.axis / self.axis.norm()
 
+        self.limits = limits
+
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
         if self.offset is not None:
             self.offset = self.offset.to(*args, **kwargs)
         return self
+
+    def clamp(self, joint_position):
+        if self.limits is None:
+            return joint_position
+        else:
+            return torch.clamp(joint_position, self.limits[0], self.limits[1])
 
     def __repr__(self):
         return "Joint(name='{0}', offset={1}, joint_type='{2}', axis={3})".format(self.name,
@@ -78,11 +87,12 @@ class Joint(object):
 
 
 class Frame(object):
-    def __init__(self, name=None, link=None, joint=None, children=()):
+    def __init__(self, name=None, link=None, joint=None, children=None):
         self.name = 'None' if name is None else name
         self.link = link if link is not None else Link()
         self.joint = joint if joint is not None else Joint()
-        self.children = children
+        if children is None:
+            self.children = []
 
     def __str__(self, level=0):
         ret = " \t" * level + self.name + "\n"

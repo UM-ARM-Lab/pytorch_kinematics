@@ -454,7 +454,7 @@ def axis_and_angle_to_matrix_directly(axis, theta):
     c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
     one_minus_c = 1 - c
     s = torch.sin(theta)
-    kx, ky, kz = axis
+    kx, ky, kz = torch.unbind(axis, -1)
     r00 = c + kx * kx * one_minus_c
     r01 = kx * ky * one_minus_c - kz * s
     r02 = kx * kz * one_minus_c + ky * s
