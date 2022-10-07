@@ -1,8 +1,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
 from .rotation_conversions import (
-    unified_axis_angle_to_matrix,
-    axis_and_angle_to_matrix,
+    axis_angle_to_matrix,
+    axis_and_angle_to_matrix_directly,
     axis_angle_to_quaternion,
     euler_angles_to_matrix,
     matrix_to_euler_angles,

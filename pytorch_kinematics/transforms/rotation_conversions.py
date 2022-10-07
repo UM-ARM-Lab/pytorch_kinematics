@@ -420,7 +420,7 @@ def quaternion_apply(quaternion, point):
     return out[..., 1:]
 
 
-def axis_and_angle_to_matrix(axis, theta):
+def axis_and_angle_to_matrix_directly(axis, theta):
     # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
     c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
     one_minus_c = 1 - c
@@ -441,7 +441,7 @@ def axis_and_angle_to_matrix(axis, theta):
     return rot
 
 
-def unified_axis_angle_to_matrix(axis_angle):
+def axis_angle_to_matrix(axis_angle):
     """
     Convert rotations given as axis/angle to rotation matrices.
     This uses quaternions as an intermediate representation,

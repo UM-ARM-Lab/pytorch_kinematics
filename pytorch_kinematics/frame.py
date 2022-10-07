@@ -1,7 +1,7 @@
 import torch
 
 import pytorch_kinematics.transforms as tf
-from pytorch_kinematics.transforms import axis_and_angle_to_matrix
+from pytorch_kinematics.transforms import axis_and_angle_to_matrix_directly
 
 
 class Visual(object):
@@ -106,11 +106,8 @@ class Frame(object):
         dtype = self.joint.axis.dtype
         d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
-            rot = axis_and_angle_to_matrix(self.joint.axis, theta)
-            matrix = torch.eye(4, dtype=dtype, device=d).unsqueeze(0).repeat(theta.shape[0], 1, 1)
-            matrix[:, :3, :3] = rot
-            matrix[:, :3, :3] = rot
-            t = tf.Transform3d(matrix=matrix, dtype=dtype, device=d)
+            rot = axis_and_angle_to_matrix_directly(self.joint.axis, theta)
+            t = tf.Transform3d(rot=rot, dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
             t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)
         elif self.joint.joint_type == 'fixed':
