@@ -86,10 +86,19 @@ class Chain(object):
             world = tf.Transform3d()
         link_transforms = {}
 
-        th, N = ensure_2d_tensor(th_dict.get(root.joint.name, 0.0), world.dtype, world.device)
+        N = next(iter(th_dict.values())).shape[0]
+        zeros = torch.zeros([N, 1], dtype=world.dtype, device=world.device)
+        th = th_dict.get(root.joint.name, zeros)
 
-        trans = world.compose(root.get_transform(th.view(N, 1)))
-        link_transforms[root.link.name] = trans.compose(root.link.offset)
+        if root.link.offset is not None:
+            trans = world.compose(root.link.offset)
+        else:
+            trans = world
+
+        joint_trans = root.get_transform(th.view(N, 1))
+        trans = trans.compose(joint_trans)
+        link_transforms[root.link.name] = trans
+
         for child in root.children:
             link_transforms.update(Chain._forward_kinematics(child, th_dict, trans))
         return link_transforms
@@ -98,11 +107,13 @@ class Chain(object):
         if world is None:
             world = tf.Transform3d()
         if not isinstance(th, dict):
+            th, _ = ensure_2d_tensor(th, self.dtype, self.device)
             jn = self.get_joint_parameter_names()
-            assert len(jn) == len(th)
-            th_dict = dict((j, th[i]) for i, j in enumerate(jn))
+            assert len(jn) == th.shape[-1]
+            th_dict = dict((j, th[..., i]) for i, j in enumerate(jn))
         else:
-            th_dict = th
+            th_dict = {k: ensure_2d_tensor(v, self.dtype, self.device)[0] for k, v in th.items()}
+
         if world.dtype != self.dtype or world.device != self.device:
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         return self._forward_kinematics(self._root, th_dict, world)
@@ -116,7 +127,7 @@ class SerialChain(Chain):
             super(SerialChain, self).__init__(chain.find_frame(root_frame_name), **kwargs)
             if self._root is None:
                 raise ValueError("Invalid root frame name %s." % root_frame_name)
-        self._serial_frames = self._generate_serial_chain_recurse(self._root, end_frame_name)
+        self._serial_frames = [self._root] + self._generate_serial_chain_recurse(self._root, end_frame_name)
         if self._serial_frames is None:
             raise ValueError("Invalid end frame name %s." % end_frame_name)
 
@@ -145,18 +156,22 @@ class SerialChain(Chain):
         if world.dtype != self.dtype or world.device != self.device:
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         th, N = ensure_2d_tensor(th, self.dtype, self.device)
+        zeros = torch.zeros([N, 1], dtype=world.dtype, device=world.device)
 
-        cnt = 0
+        theta_idx = 0
         link_transforms = {}
         trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
         for f in self._serial_frames:
+            if f.link.offset is not None:
+                trans = trans.compose(f.link.offset)
+
             if f.joint.joint_type == "fixed":  # If fixed
-                trans = trans.compose(
-                    f.get_transform(th[:, 0].view(N, 1)))  # Use th[0] because the value is not relevant
+                trans = trans.compose(f.get_transform(zeros))
             else:
-                trans = trans.compose(f.get_transform(th[:, cnt].view(N, 1)))
-                cnt += 1
-            link_transforms[f.link.name] = trans.compose(f.link.offset)
+                trans = trans.compose(f.get_transform(th[:, theta_idx].view(N, 1)))
+                theta_idx += 1
+
+            link_transforms[f.link.name] = trans
 
         return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms
 

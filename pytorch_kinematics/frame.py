@@ -1,5 +1,7 @@
-import pytorch_kinematics.transforms as tf
 import torch
+
+import pytorch_kinematics.transforms as tf
+from pytorch_kinematics.transforms import axis_and_angle_to_matrix_directly
 
 
 class Visual(object):
@@ -7,8 +9,9 @@ class Visual(object):
 
     def __init__(self, offset=None, geom_type=None, geom_param=None):
         if offset is None:
-            offset = tf.Transform3d()
-        self.offset = offset
+            self.offset = None
+        else:
+            self.offset = offset
         self.geom_type = geom_type
         self.geom_param = geom_param
 
@@ -21,13 +24,15 @@ class Visual(object):
 class Link(object):
     def __init__(self, name=None, offset=None, visuals=()):
         if offset is None:
-            offset = tf.Transform3d()
+            self.offset = None
+        else:
+            self.offset = offset
         self.name = name
-        self.offset = offset
         self.visuals = visuals
 
     def to(self, *args, **kwargs):
-        self.offset = self.offset.to(*args, **kwargs)
+        if self.offset is not None:
+            self.offset = self.offset.to(*args, **kwargs)
         return self
 
     def __repr__(self):
@@ -42,9 +47,10 @@ class Joint(object):
     def __init__(self, name=None, offset=None, joint_type='fixed', axis=(0.0, 0.0, 1.0),
                  dtype=torch.float32, device="cpu"):
         if offset is None:
-            offset = tf.Transform3d()
+            self.offset = None
+        else:
+            self.offset = offset
         self.name = name
-        self.offset = offset
         if joint_type not in self.TYPES:
             raise RuntimeError("joint specified as {} type not, but we only support {}".format(joint_type, self.TYPES))
         self.joint_type = joint_type
@@ -60,7 +66,8 @@ class Joint(object):
 
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
-        self.offset = self.offset.to(*args, **kwargs)
+        if self.offset is not None:
+            self.offset = self.offset.to(*args, **kwargs)
         return self
 
     def __repr__(self):
@@ -99,11 +106,15 @@ class Frame(object):
         dtype = self.joint.axis.dtype
         d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
-            t = tf.Transform3d(rot=tf.axis_angle_to_quaternion(theta * self.joint.axis), dtype=dtype, device=d)
+            rot = axis_and_angle_to_matrix_directly(self.joint.axis, theta)
+            t = tf.Transform3d(rot=rot, dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
             t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)
         elif self.joint.joint_type == 'fixed':
             t = tf.Transform3d(default_batch_size=theta.shape[0], dtype=dtype, device=d)
         else:
             raise ValueError("Unsupported joint type %s." % self.joint.joint_type)
-        return self.joint.offset.compose(t)
+        if self.joint.offset is None:
+            return t
+        else:
+            return self.joint.offset.compose(t)

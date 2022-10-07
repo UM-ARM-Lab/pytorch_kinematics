@@ -1,4 +1,5 @@
 import torch
+
 import pytorch_kinematics.transforms as tf
 
 
@@ -70,11 +71,11 @@ def test_rotate():
     normals_out = t.transform_normals(normals)
     points_out_expected = torch.bmm(points, R.transpose(-1, -2))
     normals_out_expected = torch.bmm(normals, R.transpose(-1, -2))
-    assert torch.allclose(points_out, points_out_expected)
-    assert torch.allclose(normals_out, normals_out_expected)
+    assert torch.allclose(points_out, points_out_expected, atol=1e-7)
+    assert torch.allclose(normals_out, normals_out_expected, atol=1e-7)
     for i in range(3):
-        assert torch.allclose(points_out[0, i], R @ points[0, i])
-        assert torch.allclose(normals_out[0, i], R @ normals[0, i])
+        assert torch.allclose(points_out[0, i], R @ points[0, i], atol=1e-7)
+        assert torch.allclose(normals_out[0, i], R @ normals[0, i], atol=1e-7)
 
 
 def test_transform_combined():
@@ -87,8 +88,8 @@ def test_transform_combined():
     points_out = t.transform_points(points)
     normals_out = t.transform_normals(normals)
     for i in range(N):
-        assert torch.allclose(points_out[i], R @ points[i] + tr)
-        assert torch.allclose(normals_out[i], R @ normals[i])
+        assert torch.allclose(points_out[i], R @ points[i] + tr, atol=1e-7)
+        assert torch.allclose(normals_out[i], R @ normals[i], atol=1e-7)
 
 
 def test_euler():
@@ -111,7 +112,20 @@ def test_quaternions():
     assert torch.allclose(q, tf.xyzw_to_wxyz(q_tf))
 
 
+def test_compose():
+    import torch
+    theta = 1.5707
+    a2b = tf.Transform3d(pos=[0.1, 0, 0])  # joint.offset
+    b2j = tf.Transform3d(rot=tf.axis_angle_to_quaternion(theta * torch.tensor([0.0, 0, 1])))  # joint.axis
+    j2c = tf.Transform3d(pos=[0.1, 0, 0])  # link.offset ?
+    a2c = a2b.compose(b2j, j2c)
+    m = a2c.get_matrix()
+    print(m)
+    print(a2c.transform_points(torch.zeros([1, 3])))
+
+
 if __name__ == "__main__":
+    test_compose()
     test_transform()
     test_translations()
     test_rotate_axis_angle()

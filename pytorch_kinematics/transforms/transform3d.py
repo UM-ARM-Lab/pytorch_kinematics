@@ -253,11 +253,10 @@ class Transform3d:
         Returns:
             A transformation matrix representing the composed inputs.
         """
-        composed_matrix = self._matrix.clone()
-        if len(self._transforms) > 0:
-            for other in self._transforms:
-                other_matrix = other.get_matrix()
-                composed_matrix = _broadcast_bmm(composed_matrix, other_matrix)
+        composed_matrix = self._matrix
+        for other in self._transforms:
+            other_matrix = other.get_matrix()
+            composed_matrix = _broadcast_bmm(composed_matrix, other_matrix)
         return composed_matrix
 
     def _get_matrix_inverse(self):
