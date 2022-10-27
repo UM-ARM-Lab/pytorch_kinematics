@@ -1,4 +1,5 @@
 import torch
+
 from pytorch_kinematics import transforms
 
 
@@ -10,6 +11,8 @@ def calc_jacobian(serial_chain, th, tool=None):
 
     tool is the transformation wrt the end effector; default is identity. If specified, will have to
     specify for each of the N inputs
+
+    FIXME: this code assumes the joint frame and the child link frame are the same
     """
     if not torch.is_tensor(th):
         th = torch.tensor(th, dtype=serial_chain.dtype, device=serial_chain.device)
@@ -20,7 +23,7 @@ def calc_jacobian(serial_chain, th, tool=None):
         N = th.shape[0]
     ndof = th.shape[1]
 
-    j_fl = torch.zeros((N, 6, ndof), dtype=serial_chain.dtype, device=serial_chain.device)
+    j_eef = torch.zeros((N, 6, ndof), dtype=serial_chain.dtype, device=serial_chain.device)
 
     if tool is None:
         cur_transform = transforms.Transform3d(device=serial_chain.device,
@@ -34,22 +37,24 @@ def calc_jacobian(serial_chain, th, tool=None):
     for f in reversed(serial_chain._serial_frames):
         if f.joint.joint_type == "revolute":
             cnt += 1
-            axis_in_flange = cur_transform[:, :3, :3].transpose(1, 2) @ f.joint.axis 
-            joint_to_eef_in_flange = cur_transform[:, :3, :3].transpose(1,2) @ cur_transform[:, :3, 3].unsqueeze(2)
-            d = torch.cross(axis_in_flange, joint_to_eef_in_flange.squeeze(2), dim=1)
-            delta = axis_in_flange
-            j_fl[:, :, -cnt] = torch.cat((d, delta), dim=-1)
+            # cur_transform transforms a point in eef frame into a point in joint frame, i.e. p_joint = curr_transform @ p_eef
+            axis_in_eef = cur_transform[:, :3, :3].transpose(1, 2) @ f.joint.axis
+            eef2joint_pos_in_joint = cur_transform[:, :3, 3].unsqueeze(2)
+            joint2eef_rot = cur_transform[:, :3, :3].transpose(1, 2)  # transpose of rotation is inverse
+            eef2joint_pos_in_eef = joint2eef_rot @ eef2joint_pos_in_joint
+            position_jacobian = torch.cross(axis_in_eef, eef2joint_pos_in_eef.squeeze(2), dim=1)
+            j_eef[:, :, -cnt] = torch.cat((position_jacobian, axis_in_eef), dim=-1)
         elif f.joint.joint_type == "prismatic":
             cnt += 1
-            j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
+            j_eef[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
         cur_frame_transform = f.get_transform(th[:, -cnt].view(N, 1)).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
 
-    # currently j_fl is Jacobian in flange (end-effector) frame, convert to base/world frame
+    # currently j_eef is Jacobian in end-effector frame, convert to base/world frame
     pose = serial_chain.forward_kinematics(th).get_matrix()
     rotation = pose[:, :3, :3]
     j_tr = torch.zeros((N, 6, 6), dtype=serial_chain.dtype, device=serial_chain.device)
     j_tr[:, :3, :3] = rotation
     j_tr[:, 3:, 3:] = rotation
-    j_w = j_tr @ j_fl
+    j_w = j_tr @ j_eef
     return j_w
