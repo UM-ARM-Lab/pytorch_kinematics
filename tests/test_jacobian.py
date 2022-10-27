@@ -66,8 +66,7 @@ def test_jacobian_at_different_loc_than_ee():
     assert torch.allclose(J, torch.cat((J_c1, J_c2)), atol=1e-7)
 
 def test_jacobian_y_joint_axis():
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "simple_y_arm.urdf")).read(),
-                                            "eef")
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
     th = torch.tensor([0])
     J = chain.jacobian(th)
     J_c3 = torch.tensor([ [ [0.], [0.], [-0.3], [0.], [1.], [0.] ] ])
