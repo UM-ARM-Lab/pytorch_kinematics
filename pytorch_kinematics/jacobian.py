@@ -1,4 +1,3 @@
-from re import A
 import torch
 from pytorch_kinematics import transforms
 
