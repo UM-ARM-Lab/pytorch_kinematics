@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<robot name="simple">
+    <link name="base_link">
+    </link>
+
+    <link name="arm">
+        <visual>
+            <geometry>
+                <box size="0.6 0.1 0.2"/>
+            </geometry>
+        </visual>
+    </link>
+
+    <link name="eef">
+        <visual>
+            <geometry>
+                <box size="0.2 0.2 0.2"/>
+            </geometry>
+            <material name="Cyan">
+                <color rgba="0 1.0 1.0 1.0"/>
+            </material>
+        </visual>
+    </link>
+
+    <joint name="base_to_arm" type="revolute">
+        <parent link="base_link"/>
+        <child link="arm"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="0.0" upper="0.548" effort="1000.0" velocity="0.5"/>
+    </joint>
+
+    <joint name="arm_to_eef" type="fixed">
+        <parent link="arm"/>
+        <child link="eef"/>
+        <origin xyz="0.3 0.0 0.0"/>
+    </joint>
+
+
+</robot>
