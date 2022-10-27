@@ -15,6 +15,12 @@ def ensure_2d_tensor(th, dtype, device):
     return th, N
 
 
+def transform_direction(pose, v):
+    v_ = torch.cat([v, torch.zeros_like(v[..., 0:1])], dim=-1).unsqueeze(-1)
+    new_v = (pose @ v_)[..., :3, 0]
+    return new_v
+
+
 class Chain(object):
     def __init__(self, root_frame, dtype=torch.float32, device="cpu"):
         self._root = root_frame
@@ -58,6 +64,19 @@ class Chain(object):
         return None
 
     @staticmethod
+    def _get_joints(frame, exclude_fixed=True):
+        joints = []
+        if exclude_fixed and frame.joint.joint_type != "fixed":
+            joints.append(frame.joint)
+        for child in frame.children:
+            joints.extend(Chain._get_joints(child))
+        return joints
+
+    def get_joints(self, exclude_fixed=True):
+        joints = self._get_joints(self._root, exclude_fixed=exclude_fixed)
+        return joints
+
+    @staticmethod
     def _find_joint_recursive(name, frame):
         for child in frame.children:
             if child.joint.name == name:
@@ -90,10 +109,27 @@ class Chain(object):
         names = self._get_joint_parameter_names(self._root, exclude_fixed)
         return sorted(set(names), key=names.index)
 
-    def add_frame(self, frame, parent_name):
-        frame = self.find_frame(parent_name)
-        if not frame is None:
-            frame.add_child(frame)
+    @staticmethod
+    def _get_links(frame):
+        links = [frame.link]
+        for child in frame.children:
+            links.extend(Chain._get_links(child))
+        return links
+
+    def get_links(self):
+        links = self._get_links(self._root)
+        return links
+
+    @staticmethod
+    def _get_link_names(frame):
+        link_names = [frame.link.name]
+        for child in frame.children:
+            link_names.extend(Chain._get_link_names(child))
+        return link_names
+
+    def get_link_names(self):
+        names = self._get_link_names(self._root)
+        return sorted(set(names), key=names.index)
 
     @staticmethod
     def _forward_kinematics(root, th_dict, world=None):
@@ -120,7 +156,7 @@ class Chain(object):
 
     def forward_kinematics(self, th, world=None):
         if world is None:
-            world = tf.Transform3d()
+            world = tf.Transform3d(dtype=self.dtype, device=self.device)
 
         th_dict = self.ensure_dict_of_2d_tensors(th)
 
@@ -155,6 +191,67 @@ class Chain(object):
             return th_dict
         else:
             return torch.stack([v for v in th_dict.values()], dim=-1)
+
+    def get_joint_limits(self):
+        low = []
+        high = []
+        for joint_name in self.get_joint_parameter_names(exclude_fixed=True):
+            joint = self.find_joint(joint_name)
+            low.append(joint.limits[0])
+            high.append(joint.limits[1])
+
+        return low, high
+
+    @staticmethod
+    def _get_joints_and_child_links(frame):
+        joint = frame.joint
+
+        me_and_my_children = [frame.link]
+        for child in frame.children:
+            recursive_child_links = yield from Chain._get_joints_and_child_links(child)
+            me_and_my_children.extend(recursive_child_links)
+
+        if joint is not None and joint.joint_type != 'fixed':
+            yield joint, me_and_my_children
+
+        return me_and_my_children
+
+    def get_joints_and_child_links(self):
+        yield from Chain._get_joints_and_child_links(self._root)
+
+    def expected_torques(self, th):
+        gravity = torch.tensor([0, 0, -9.8], dtype=self.dtype, device=self.device)
+        poses_dict = self.forward_kinematics(th)
+        torques_dict = {}
+        for joint, child_links in self.get_joints_and_child_links():
+            # NOTE: assumes joint has not offset from joint_link
+            joint_link = child_links[0]
+            # print(joint.name, [l.name for l in child_links])
+            child_masses = []
+            child_positions = []
+            for link in child_links:
+                child_masses.append(link.mass)
+                child_positions.append(poses_dict[link.name].get_matrix()[:, :3, 3])
+            child_masses = torch.tensor(child_masses, dtype=self.dtype, device=self.device)
+            child_positions = torch.stack(child_positions, dim=-1)
+            avg_position = (child_masses[None, None] * child_positions).sum(dim=-1)  # add batch_dims
+            total_mass = torch.sum(child_masses)
+            joint_pose = poses_dict[joint_link.name].get_matrix()
+            joint_position = joint_pose[:, :3, 3]
+            axis_joint_frame = joint.axis[None]  # add batch dims
+            axis_world_frame = transform_direction(joint_pose, axis_joint_frame)
+            # print(avg_position, total_mass, axis_world_frame, joint_position)
+            joint_to_avg_pos = avg_position - joint_position
+            # NOTE: A@B.T is the same as batched dot product
+            lever_vector = joint_to_avg_pos - axis_world_frame @ joint_to_avg_pos.T * axis_world_frame
+            force_vector = (total_mass * gravity)[None]
+            torque_world_frame = torch.cross(lever_vector, force_vector)
+            torque_joint_frame = transform_direction(torch.linalg.pinv(joint_pose), torque_world_frame)
+            # print(torque_joint_frame)
+            torques_dict[joint.name] = torque_joint_frame
+
+        torques = [torques_dict[n] for n in self.get_joint_parameter_names(True)]
+        return torques
 
 
 class SerialChain(Chain):

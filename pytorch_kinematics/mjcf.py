@@ -34,23 +34,24 @@ def _build_chain_recurse(parent_frame, parent_body):
             raise ValueError("composite joints not supported (could implement this if needed)")
         if n_joints == 1:
             joint = b.joint[0]
-            if string_to_bool(joint.limited):
-                child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis,
-                                          joint_type=JOINT_TYPE_MAP[joint.type],
-                                          limits=joint.range)
-            else:
-                child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis, joint_type=JOINT_TYPE_MAP[joint.type])
+            child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis,
+                                      joint_type=JOINT_TYPE_MAP[joint.type],
+                                      limits=joint.range)
         else:
             child_joint = frame.Joint(b.name + "_imaginary_fixed_joint")
-        child_link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos))
-        child_frame = frame.Frame(name=b.name, link=child_link, joint=child_joint)
-        parent_frame.children = parent_frame.children + (child_frame,)
+        mass = 0.0
+        inertial = b.inertial
+        if inertial is not None:
+            mass = inertial.mass
+        child_link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos), mass=mass)
+        child_frame = frame.Frame(name=b.name + "_frame", link=child_link, joint=child_joint)
+        parent_frame.add_child(child_frame)
         _build_chain_recurse(child_frame, b)
 
     for site in parent_body.site:
         site_link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
-        site_frame = frame.Frame(name=site.name, link=site_link)
-        parent_frame.children = parent_frame.children + (site_frame,)
+        site_frame = frame.Frame(name=site.name + "_frame", link=site_link)
+        parent_frame.add_child(site_frame)
 
 
 def build_chain_from_mjcf(data):

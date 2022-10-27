@@ -22,7 +22,8 @@ class Visual(object):
 
 
 class Link(object):
-    def __init__(self, name=None, offset=None, visuals=()):
+    def __init__(self, name=None, offset=None, mass=0.0, visuals=()):
+        self.mass = mass
         if offset is None:
             self.offset = None
         else:
@@ -86,11 +87,12 @@ class Joint(object):
 
 
 class Frame(object):
-    def __init__(self, name=None, link=None, joint=None, children=()):
+    def __init__(self, name=None, link=None, joint=None, children=None):
         self.name = 'None' if name is None else name
         self.link = link if link is not None else Link()
         self.joint = joint if joint is not None else Joint()
-        self.children = children
+        if children is None:
+            self.children = []
 
     def __str__(self, level=0):
         ret = " \t" * level + self.name + "\n"
