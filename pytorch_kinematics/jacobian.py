@@ -34,12 +34,6 @@ def calc_jacobian(serial_chain, th, tool=None):
     for f in reversed(serial_chain._serial_frames):
         if f.joint.joint_type == "revolute":
             cnt += 1
-            d = torch.stack([-cur_transform[:, 0, 0] * cur_transform[:, 1, 3]
-                             + cur_transform[:, 1, 0] * cur_transform[:, 0, 3],
-                             -cur_transform[:, 0, 1] * cur_transform[:, 1, 3]
-                             + cur_transform[:, 1, 1] * cur_transform[:, 0, 3],
-                             -cur_transform[:, 0, 2] * cur_transform[:, 1, 3]
-                             + cur_transform[:, 1, 2] * cur_transform[:, 0, 3]]).transpose(0, 1)
             axis_in_flange = cur_transform[:, :3, :3].transpose(1, 2) @ f.joint.axis 
             joint_to_eef_in_flange = cur_transform[:, :3, :3].transpose(1,2) @ cur_transform[:, :3, 3].unsqueeze(2)
             d = torch.cross(axis_in_flange, joint_to_eef_in_flange.squeeze(2), dim=1)
