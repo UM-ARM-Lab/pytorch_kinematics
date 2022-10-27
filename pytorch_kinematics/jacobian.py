@@ -41,11 +41,10 @@ def calc_jacobian(serial_chain, th, tool=None):
                              + cur_transform[:, 1, 1] * cur_transform[:, 0, 3],
                              -cur_transform[:, 0, 2] * cur_transform[:, 1, 3]
                              + cur_transform[:, 1, 2] * cur_transform[:, 0, 3]]).transpose(0, 1)
-            # rows are the joint axis in the flange frame
             axis_in_flange = cur_transform[:, :3, :3].transpose(1, 2) @ f.joint.axis 
-            joint_to_eef_in_flange = cur_transform[:, :3, :3].transpose(1,2) @ cur_transform[:, :3, 3].T
+            joint_to_eef_in_flange = cur_transform[:, :3, :3].transpose(1,2) @ cur_transform[:, :3, 3].unsqueeze(2)
             d = torch.cross(axis_in_flange, joint_to_eef_in_flange.squeeze(2), dim=1)
-            delta = axis_in_flange #cur_transform[:, 2, 0:3]
+            delta = axis_in_flange
             j_fl[:, :, -cnt] = torch.cat((d, delta), dim=-1)
         elif f.joint.joint_type == "prismatic":
             cnt += 1
