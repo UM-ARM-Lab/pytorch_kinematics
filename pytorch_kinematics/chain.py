@@ -1,7 +1,8 @@
 import torch
 
 import pytorch_kinematics.transforms as tf
-from . import jacobian
+from pytorch_kinematics import jacobian
+from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_directly
 
 
 def ensure_2d_tensor(th, dtype, device):
@@ -27,12 +28,57 @@ class Chain(object):
         self.dtype = dtype
         self.device = device
 
+        self.parent_indices = []
+        self.joint_indices = []
+        self.axes = []
+        self.is_fixed = []
+        self.link_offsets = []
+        self.joint_offsets = []
+        queue = []
+        jnt_idx = 0
+        queue.insert(-1, (self._root, -1))
+        idx = 0
+        self.frame_to_idx = {}
+        while len(queue) > 0:
+            root, parent_idx = queue.pop(0)
+            self.frame_to_idx[root.name.strip("\n")] = idx
+            self.parent_indices.append(parent_idx)
+            self.is_fixed.append(root.joint.joint_type == 'fixed')
+            self.axes.append(root.joint.axis)
+
+            if root.link.offset is None:
+                self.link_offsets.append(None)
+            else:
+                self.link_offsets.append(root.link.offset.get_matrix())
+
+            if root.joint.offset is None:
+                self.joint_offsets.append(None)
+            else:
+                self.joint_offsets.append(root.joint.offset.get_matrix())
+
+            if self.is_fixed[-1]:
+                self.joint_indices.append(-1)
+            else:
+                self.joint_indices.append(jnt_idx)
+                jnt_idx += 1
+
+            for child in root.children:
+                queue.insert(-1, (child, idx))
+
+            idx += 1
+
     def to(self, dtype=None, device=None):
         if dtype is not None:
             self.dtype = dtype
         if device is not None:
             self.device = device
         self._root = self._root.to(dtype=self.dtype, device=self.device)
+
+        self.axes = [a.to(dtype=self.dtype, device=self.device) for a in self.axes]
+        self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
+        self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
+                              self.joint_offsets]
+
         return self
 
     def __str__(self):
@@ -163,6 +209,56 @@ class Chain(object):
         if world.dtype != self.dtype or world.device != self.device:
             world = world.to(dtype=self.dtype, device=self.device, copy=True)
         return self._forward_kinematics(self._root, th_dict, world)
+
+    def forward_kinematics_fast(self, th):
+        """
+        The basic idea here is to rewrite the code in a more JIT friendly manner, getting
+        rid of as much conditional logic and string manipulation, as well as getting rid of recursion
+        
+        Instead of a tree, we can use a flat data structure with indexes to represent the parent
+        then instead of recursion we can just iterate in order and use parent pointers
+        
+        EX:
+        idx | parent | jnt_idx | theta
+        0   | -1 | -1 | zeros
+        1   |  0 |
+        2   |  0 | zeros
+        """
+
+        b = th.shape[0]
+        # FIXME: refactor out this string stuff
+        tool_names = ['left_tool', 'right_tool']
+        tool_indices = torch.tensor([self.frame_to_idx[n + '_frame'] for n in tool_names], dtype=torch.long,
+                                    device=self.device)
+
+        tool_transforms = []
+        for tool_idx in tool_indices:
+            idx = tool_idx
+            tool_transform = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0).repeat(b, 1, 1)
+
+            while idx > 0:
+
+                link_offset_i = self.link_offsets[idx]
+                if link_offset_i is not None:
+                    tool_transform = link_offset_i @ tool_transform
+
+                if not self.is_fixed[idx]:  # NOTE: assumes revolute joint
+                    jnt_idx = self.joint_indices[idx]
+                    th_i = th[..., jnt_idx]
+                    jnt_transform_i_R = axis_and_angle_to_matrix_directly(self.axes[idx], th_i.unsqueeze(1))
+                    jnt_transform_i = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0).repeat(b, 1, 1)
+                    jnt_transform_i[:, :3, :3] = jnt_transform_i_R
+                    tool_transform = jnt_transform_i @ tool_transform
+
+                joint_offset_i = self.joint_offsets[idx]
+                if joint_offset_i is not None:
+                    tool_transform = joint_offset_i @ tool_transform
+
+                idx = self.parent_indices[idx]
+
+            tool_transforms.append(tool_transform)
+
+        return tool_transforms
 
     def ensure_dict_of_2d_tensors(self, th):
         if not isinstance(th, dict):
