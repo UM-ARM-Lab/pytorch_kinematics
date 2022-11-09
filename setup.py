@@ -24,6 +24,6 @@ setup(
     tests_require=[
         'pytest'
     ],
-    ext_modules=[cpp_extension.CppExtension('pk_cpp', ['pytorch_kinematics/pk.cpp'])],
+    ext_modules=[cpp_extension.CppExtension('zpk_cpp', ['pytorch_kinematics/pk.cpp'])],
     cmdclass={'build_ext': cpp_extension.BuildExtension}
 )

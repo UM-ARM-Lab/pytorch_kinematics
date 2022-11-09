@@ -1,10 +1,10 @@
 from functools import lru_cache
 
 import torch
+import zpk_cpp
 
 import pytorch_kinematics.transforms as tf
 from pytorch_kinematics import jacobian
-from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_directly
 
 
 def ensure_2d_tensor(th, dtype, device):
@@ -30,6 +30,7 @@ class Chain(object):
         self.dtype = dtype
         self.device = device
 
+        self.identity = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0)
         self.parent_indices = []
         self.joint_indices = []
         self.axes = []
@@ -67,6 +68,8 @@ class Chain(object):
                 queue.insert(-1, (child, idx))
 
             idx += 1
+        self.axes = torch.stack(self.axes, 0)
+        self.joint_indices = torch.tensor(self.joint_indices)
 
     def to(self, dtype=None, device=None):
         if dtype is not None:
@@ -75,7 +78,8 @@ class Chain(object):
             self.device = device
         self._root = self._root.to(dtype=self.dtype, device=self.device)
 
-        self.axes = [a.to(dtype=self.dtype, device=self.device) for a in self.axes]
+        self.identity = self.identity.to(device=self.device, dtype=self.dtype)
+        self.axes = self.axes.to(dtype=self.dtype, device=self.device)
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_offsets]
@@ -218,34 +222,32 @@ class Chain(object):
 
     def forward_kinematics_fast(self, th, tool_indices):
         """
-        The basic idea here is to rewrite the code in a more JIT friendly manner, getting
-        rid of as much conditional logic and string manipulation, as well as getting rid of recursion
-        
         Instead of a tree, we can use a flat data structure with indexes to represent the parent
-        then instead of recursion we can just iterate in order and use parent pointers
+        then instead of recursion we can just iterate in order and use parent pointers. This
+        reduces function call overhead and moves some of the indexing work to the constructor.
         """
 
-        b = th.shape[0]
+        b, n = th.shape
 
+        identity_batch = self.identity.repeat(b, 1, 1)
         tool_transforms = []
-        transform_map = {}
+
+        relevant_indices = (self.joint_indices > -1)
+        relevant_axes = self.axes[relevant_indices].unsqueeze(0).repeat(b, 1, 1)
+        jnt_transform = zpk_cpp.axis_and_angle_to_matrix(relevant_axes, th)
+
         for tool_idx in tool_indices:
             idx = tool_idx
-            tool_transform = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0).repeat(b, 1, 1)
+            tool_transform = identity_batch.clone()
 
             while idx >= 0:
-                transform_map[idx] = tool_transform
-
                 joint_offset_i = self.joint_offsets[idx]
                 if joint_offset_i is not None:
                     tool_transform = joint_offset_i @ tool_transform
 
                 if not self.is_fixed[idx]:  # NOTE: assumes revolute joint
                     jnt_idx = self.joint_indices[idx]
-                    th_i = th[..., jnt_idx]
-                    jnt_transform_i_R = axis_and_angle_to_matrix_directly(self.axes[idx], th_i.unsqueeze(1))
-                    jnt_transform_i = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0).repeat(b, 1, 1)
-                    jnt_transform_i[:, :3, :3] = jnt_transform_i_R
+                    jnt_transform_i = jnt_transform[:, jnt_idx]
                     tool_transform = jnt_transform_i @ tool_transform
 
                 link_offset_i = self.link_offsets[idx]

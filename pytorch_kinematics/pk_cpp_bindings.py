@@ -1,5 +1,5 @@
 import torch
-import pk_cpp
+import zpk_cpp
 
 
 class AxisAndAngleToMatrixFunction(torch.autograd.Function):
