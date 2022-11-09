@@ -1,4 +1,6 @@
-from setuptools import setup
+from setuptools import setup, Extension
+from torch.utils import cpp_extension
+
 
 setup(
     name='pytorch_kinematics',
@@ -21,5 +23,7 @@ setup(
     ],
     tests_require=[
         'pytest'
-    ]
+    ],
+    ext_modules=[cpp_extension.CppExtension('pk_cpp', ['pytorch_kinematics/pk.cpp'])],
+    cmdclass={'build_ext': cpp_extension.BuildExtension}
 )

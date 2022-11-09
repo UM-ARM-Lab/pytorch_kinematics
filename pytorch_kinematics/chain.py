@@ -228,11 +228,13 @@ class Chain(object):
         b = th.shape[0]
 
         tool_transforms = []
+        transform_map = {}
         for tool_idx in tool_indices:
             idx = tool_idx
             tool_transform = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0).repeat(b, 1, 1)
 
             while idx >= 0:
+                transform_map[idx] = tool_transform
 
                 joint_offset_i = self.joint_offsets[idx]
                 if joint_offset_i is not None:

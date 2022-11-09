@@ -1,4 +1,5 @@
 .idea
+*.so
 *.egg-info
 __pycache__
 temp*
