@@ -31,9 +31,12 @@ class Chain(object):
         self.device = device
 
         self.identity = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0)
+        self.precompute_fk_info()
+
+    def precompute_fk_info(self):
         self.parent_indices = []
         self.joint_indices = []
-        self.axes = torch.zeros([len(self.get_joint_parameter_names()), 3], dtype=dtype, device=device)
+        self.axes = torch.zeros([len(self.get_joint_parameter_names()), 3], dtype=self.dtype, device=self.device)
         self.is_fixed = []
         self.link_offsets = []
         self.joint_offsets = []
@@ -225,6 +228,8 @@ class Chain(object):
         then instead of recursion we can just iterate in order and use parent pointers. This
         reduces function call overhead and moves some of the indexing work to the constructor.
         """
+        th = torch.atleast_2d(th)
+
         b, n = th.shape
 
         axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
