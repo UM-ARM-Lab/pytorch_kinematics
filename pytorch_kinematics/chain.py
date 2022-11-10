@@ -226,37 +226,21 @@ class Chain(object):
         then instead of recursion we can just iterate in order and use parent pointers. This
         reduces function call overhead and moves some of the indexing work to the constructor.
         """
-
         b, n = th.shape
-
-        identity_batch = self.identity.repeat(b, 1, 1)
-        tool_transforms = []
 
         relevant_indices = (self.joint_indices > -1)
         relevant_axes = self.axes[relevant_indices].unsqueeze(0).repeat(b, 1, 1)
-        jnt_transform = zpk_cpp.axis_and_angle_to_matrix(relevant_axes, th)
 
-        for tool_idx in tool_indices:
-            idx = tool_idx
-            tool_transform = identity_batch.clone()
-
-            while idx >= 0:
-                joint_offset_i = self.joint_offsets[idx]
-                if joint_offset_i is not None:
-                    tool_transform = joint_offset_i @ tool_transform
-
-                if not self.is_fixed[idx]:  # NOTE: assumes revolute joint
-                    jnt_idx = self.joint_indices[idx]
-                    jnt_transform_i = jnt_transform[:, jnt_idx]
-                    tool_transform = jnt_transform_i @ tool_transform
-
-                link_offset_i = self.link_offsets[idx]
-                if link_offset_i is not None:
-                    tool_transform = link_offset_i @ tool_transform
-
-                idx = self.parent_indices[idx]
-
-            tool_transforms.append(tool_transform)
+        tool_transforms = zpk_cpp.fk(
+            tool_indices,
+            relevant_axes,
+            th,
+            self.parent_indices,
+            self.is_fixed,
+            self.joint_indices,
+            self.joint_offsets,
+            self.link_offsets
+        )
 
         return tool_transforms
 
