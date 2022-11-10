@@ -41,7 +41,7 @@ torch::Tensor axis_and_angle_to_matrix(torch::Tensor axis,
 }
 
 std::vector<torch::Tensor>
-fk(torch::Tensor tool_indices, torch::Tensor relevant_axes, torch::Tensor th,
+fk(torch::Tensor tool_indices, torch::Tensor axes, torch::Tensor th,
    std::vector<int> parent_indices, std::vector<bool> is_fixed,
    torch::Tensor joint_indices,
    std::vector<std::optional<torch::Tensor>> joint_offsets,
@@ -49,7 +49,7 @@ fk(torch::Tensor tool_indices, torch::Tensor relevant_axes, torch::Tensor th,
   std::vector<torch::Tensor> tool_transforms;
 
   auto b = th.size(0);
-  auto const jnt_transform = axis_and_angle_to_matrix(relevant_axes, th);
+  auto const jnt_transform = axis_and_angle_to_matrix(axes, th);
 
   for (auto i{0}; i < tool_indices.size(0); ++i) {
     auto idx = tool_indices.index({i}).item().to<int>();

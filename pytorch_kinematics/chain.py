@@ -33,7 +33,7 @@ class Chain(object):
         self.identity = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0)
         self.parent_indices = []
         self.joint_indices = []
-        self.axes = []
+        self.axes = torch.zeros([len(self.get_joint_parameter_names()), 3], dtype=dtype, device=device)
         self.is_fixed = []
         self.link_offsets = []
         self.joint_offsets = []
@@ -46,7 +46,6 @@ class Chain(object):
             self.frame_to_idx[root.name.strip("\n")] = idx
             self.parent_indices.append(parent_idx)
             self.is_fixed.append(root.joint.joint_type == 'fixed')
-            self.axes.append(root.joint.axis)
 
             if root.link.offset is None:
                 self.link_offsets.append(None)
@@ -62,13 +61,13 @@ class Chain(object):
                 self.joint_indices.append(-1)
             else:
                 jnt_idx = self.get_joint_parameter_names().index(root.joint.name)
+                self.axes[jnt_idx] = root.joint.axis
                 self.joint_indices.append(jnt_idx)
 
             for child in root.children:
                 queue.insert(-1, (child, idx))
 
             idx += 1
-        self.axes = torch.stack(self.axes, 0)
         self.joint_indices = torch.tensor(self.joint_indices)
 
     def to(self, dtype=None, device=None):
@@ -228,12 +227,11 @@ class Chain(object):
         """
         b, n = th.shape
 
-        relevant_indices = (self.joint_indices > -1)
-        relevant_axes = self.axes[relevant_indices].unsqueeze(0).repeat(b, 1, 1)
+        axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
 
         tool_transforms = zpk_cpp.fk(
             tool_indices,
-            relevant_axes,
+            axes_expanded,
             th,
             self.parent_indices,
             self.is_fixed,
