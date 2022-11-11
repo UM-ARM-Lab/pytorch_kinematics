@@ -1,4 +1,5 @@
 from functools import lru_cache
+import numpy as np
 
 import torch
 import zpk_cpp
@@ -218,16 +219,19 @@ class Chain(object):
         return self._forward_kinematics(self._root, th_dict, world)
 
     @lru_cache
-    def get_tool_indices(self, *tool_names):
+    def get_link_indices(self, *tool_names):
         return torch.tensor([self.frame_to_idx[n + '_frame'] for n in tool_names], dtype=torch.long,
                             device=self.device)
 
-    def forward_kinematics_fast(self, th, tool_indices):
+    def forward_kinematics_fast(self, th, link_indices):
         """
         Instead of a tree, we can use a flat data structure with indexes to represent the parent
         then instead of recursion we can just iterate in order and use parent pointers. This
         reduces function call overhead and moves some of the indexing work to the constructor.
         """
+        if isinstance(th, np.ndarray):
+            th = torch.tensor(th, device=self.device, dtype=self.dtype)
+
         th = torch.atleast_2d(th)
 
         b, n = th.shape
@@ -235,7 +239,7 @@ class Chain(object):
         axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
 
         tool_transforms = zpk_cpp.fk(
-            tool_indices,
+            link_indices,
             axes_expanded,
             th,
             self.parent_indices,
