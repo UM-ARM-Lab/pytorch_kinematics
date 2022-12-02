@@ -1,6 +1,6 @@
 from functools import lru_cache
-import numpy as np
 
+import numpy as np
 import torch
 import zpk_cpp
 
@@ -37,16 +37,18 @@ class Chain(object):
     def precompute_fk_info(self):
         self.parent_indices = []
         self.joint_indices = []
-        self.axes = torch.zeros([len(self.get_joint_parameter_names()), 3], dtype=self.dtype, device=self.device)
+        n = len(self.get_joint_parameter_names())
+        self.axes = torch.zeros([n, 3], dtype=self.dtype, device=self.device)
         self.is_fixed = []
         self.link_offsets = []
         self.joint_offsets = []
         queue = []
-        queue.insert(-1, (self._root, -1))
+        queue.insert(-1, (self._root, -1, 0))
         idx = 0
         self.frame_to_idx = {}
+        self.joint_weights = torch.zeros([n], dtype=self.dtype, device=self.device)
         while len(queue) > 0:
-            root, parent_idx = queue.pop(0)
+            root, parent_idx, depth = queue.pop(0)
             self.frame_to_idx[root.name.strip("\n")] = idx
             self.parent_indices.append(parent_idx)
             self.is_fixed.append(root.joint.joint_type == 'fixed')
@@ -67,12 +69,14 @@ class Chain(object):
                 jnt_idx = self.get_joint_parameter_names().index(root.joint.name)
                 self.axes[jnt_idx] = root.joint.axis
                 self.joint_indices.append(jnt_idx)
+                self.joint_weights[jnt_idx] = depth
 
             for child in root.children:
-                queue.insert(-1, (child, idx))
+                queue.append((child, idx, depth + 1))
 
             idx += 1
         self.joint_indices = torch.tensor(self.joint_indices)
+        self.joint_weights = self.joint_weights / self.joint_weights.norm()
 
     def to(self, dtype=None, device=None):
         if dtype is not None:
@@ -86,6 +90,8 @@ class Chain(object):
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_offsets]
+        self.joint_weights = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
+                              self.joint_weights]
 
         return self
 
@@ -149,6 +155,19 @@ class Chain(object):
         if self._root.joint.name == name:
             return self._root.joint
         return self._find_joint_recursive(name, self._root)
+
+    @staticmethod
+    def _get_joint_parent_frame_names(frame, exclude_fixed=True):
+        joint_names = []
+        if not (exclude_fixed and frame.joint.joint_type == "fixed"):
+            joint_names.append(frame.name)
+        for child in frame.children:
+            joint_names.extend(Chain._get_joint_parent_frame_names(child, exclude_fixed))
+        return joint_names
+
+    def get_joint_parent_frame_names(self, exclude_fixed=True):
+        names = self._get_joint_parent_frame_names(self._root, exclude_fixed)
+        return sorted(set(names), key=names.index)
 
     @staticmethod
     def _get_joint_parameter_names(frame, exclude_fixed=True):
