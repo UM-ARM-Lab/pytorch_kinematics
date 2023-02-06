@@ -134,6 +134,7 @@ class SerialChain(Chain):
     @staticmethod
     def _generate_serial_chain_recurse(root_frame, end_frame_name):
         for child in root_frame.children:
+            print(child.name, end_frame_name)
             if child.name == end_frame_name:
                 return [child]
             else:
@@ -173,7 +174,7 @@ class SerialChain(Chain):
 
             link_transforms[f.link.name] = trans
 
-        return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms
+        return link_transforms[self._serial_frames[-1].link.name].get_matrix() #if end_only else link_transforms
 
     def jacobian(self, th, locations=None):
         if locations is not None:

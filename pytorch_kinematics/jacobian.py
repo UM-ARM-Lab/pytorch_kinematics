@@ -20,8 +20,8 @@ def calc_jacobian(serial_chain, th, tool=None):
         N = th.shape[0]
     ndof = th.shape[1]
 
-    j_fl = torch.zeros((N, 6, ndof), dtype=serial_chain.dtype, device=serial_chain.device)
-
+    # j_fl = torch.zeros((N, 6, ndof), dtype=serial_chain.dtype, device=serial_chain.device)
+    j_fl = []
     if tool is None:
         cur_transform = transforms.Transform3d(device=serial_chain.device,
                                                dtype=serial_chain.dtype).get_matrix().repeat(N, 1, 1)
@@ -41,18 +41,29 @@ def calc_jacobian(serial_chain, th, tool=None):
                              -cur_transform[:, 0, 2] * cur_transform[:, 1, 3]
                              + cur_transform[:, 1, 2] * cur_transform[:, 0, 3]]).transpose(0, 1)
             delta = cur_transform[:, 2, 0:3]
-            j_fl[:, :, -cnt] = torch.cat((d, delta), dim=-1)
+            #j_fl[:, :, -cnt] = torch.cat((d, delta), dim=-1)
+            j_fl.append(torch.cat((d, delta), dim=-1))
+            
         elif f.joint.joint_type == "prismatic":
-            cnt += 1
-            j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
+            raise ValueError('Not supported')
+            #cnt += 1
+            #j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
+            #j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
+            
         cur_frame_transform = f.get_transform(th[:, -cnt].view(N, 1)).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
-
+    
+    j_fl = torch.stack(j_fl, dim=2)
+    j_fl = torch.flip(j_fl, dims=(2,))
     # currently j_fl is Jacobian in flange (end-effector) frame, convert to base/world frame
-    pose = serial_chain.forward_kinematics(th).get_matrix()
+    pose = serial_chain.forward_kinematics(th)
     rotation = pose[:, :3, :3]
-    j_tr = torch.zeros((N, 6, 6), dtype=serial_chain.dtype, device=serial_chain.device)
-    j_tr[:, :3, :3] = rotation
-    j_tr[:, 3:, 3:] = rotation
+    zeros = torch.zeros_like(rotation)
+    #j_tr = torch.zeros((N, 6, 6), dtype=serial_chain.dtype, device=serial_chain.device)
+    j_tr_top = torch.cat((rotation, zeros), dim=2)
+    j_tr_bot = torch.cat((zeros, rotation), dim=2)
+    j_tr = torch.cat((j_tr_top, j_tr_bot), dim=1)
+    #j_tr[:, :3, :3] = rotation
+    #j_tr[:, 3:, 3:] = rotation
     j_w = j_tr @ j_fl
     return j_w
