@@ -161,7 +161,7 @@ def test_cuda():
 
         # NOTE: do it twice because we previously had an issue with default arguments
         #  like joint=Joint() causing spooky behavior
-        chain = pk.build_chain_from_sdf(open("simple_arm.sdf").read())
+        chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
         chain = chain.to(dtype=dtype, device=d)
 
         ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
