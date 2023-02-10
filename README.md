@@ -2,8 +2,14 @@
 - Parallel and differentiable forward kinematics (FK) and Jacobian calculation
 - Load robot description from URDF, SDF, and MJCF formats 
 
+# Installation
+```shell
+pip install pytorch-kinematics
+```
+
+For development, clone repository somewhere, then `pip3 install -e .` to install in editable mode.
+
 # Usage
-Clone repository somewhere, then `pip3 install -e .` to install in editable mode.
 
 See `tests` for code samples; some are also shown here.
 
