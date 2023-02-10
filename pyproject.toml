@@ -97,7 +97,7 @@ test = ["pytest"]
 [tool.setuptools]
 # If there are data files included in your packages that need to be
 # installed, specify them here.
-#package-data = {"sample" = ["*.dat"]}
+package-data = {"pytorch_kinematics" = ["tests/*.sdf", "tests/*.urdf", "tests/*.xml", "tests/meshes/*.obj"]}
 
 [build-system]
 # These are the assumed default build requirements from pip:
