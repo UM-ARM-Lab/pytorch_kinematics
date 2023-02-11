@@ -150,8 +150,9 @@ def matrix_to_quaternion(matrix):
     # forall i; we pick the best-conditioned one (with the largest denominator)
 
     return quat_candidates[
-        F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :  # pyre-ignore[16]
-    ].reshape(batch_dim + (4,))
+           F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :  # pyre-ignore[16]
+           ].reshape(batch_dim + (4,))
+
 
 def _axis_angle_rotation(axis: str, angle):
     """
@@ -606,3 +607,20 @@ def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
     Retrieved from http://arxiv.org/abs/1812.07035
     """
     return matrix[..., :2, :].clone().reshape(*matrix.size()[:-2], 6)
+
+
+def matrix_to_pos_rot(m):
+    """Convert 4x4 transformation matrix to (position, xyzw quatnerion) used by pybullet and RViz"""
+    pos = m[..., :3, 3]
+    rot = matrix_to_quaternion(m[..., :3, :3])
+    rot = wxyz_to_xyzw(rot)
+    return pos, rot
+
+
+def pos_rot_to_matrix(pos, rot):
+    rot = xyzw_to_wxyz(rot)
+    rot = quaternion_to_matrix(rot)
+    m = torch.eye(4, device=pos.device, dtype=pos.dtype).repeat(pos.shape[:-1] + (1, 1))
+    m[..., :3, 3] = pos
+    m[..., :3, :3] = rot
+    return m
