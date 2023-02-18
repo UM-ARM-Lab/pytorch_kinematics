@@ -1,6 +1,7 @@
 import torch
-
+import typing
 import pytorch_kinematics.transforms as tf
+from pytorch_kinematics.frame import Frame, Link
 from . import jacobian
 
 
@@ -33,7 +34,7 @@ class Chain(object):
         return str(self._root)
 
     @staticmethod
-    def _find_frame_recursive(name, frame):
+    def _find_frame_recursive(name, frame) -> typing.Optional[Frame]:
         for child in frame.children:
             if child.name == name:
                 return child
@@ -42,13 +43,13 @@ class Chain(object):
                 return ret
         return None
 
-    def find_frame(self, name):
+    def find_frame(self, name) -> typing.Optional[Frame]:
         if self._root.name == name:
             return self._root
         return self._find_frame_recursive(name, self._root)
 
     @staticmethod
-    def _find_link_recursive(name, frame):
+    def _find_link_recursive(name, frame) -> typing.Optional[Link]:
         for child in frame.children:
             if child.link.name == name:
                 return child.link
@@ -57,13 +58,13 @@ class Chain(object):
                 return ret
         return None
 
-    def find_link(self, name):
+    def find_link(self, name) -> typing.Optional[Link]:
         if self._root.link.name == name:
             return self._root.link
         return self._find_link_recursive(name, self._root)
 
     @staticmethod
-    def _get_joint_parameter_names(frame, exclude_fixed=True):
+    def _get_joint_parameter_names(frame, exclude_fixed=True) -> typing.Sequence[str]:
         joint_names = []
         if not (exclude_fixed and frame.joint.joint_type == "fixed"):
             joint_names.append(frame.joint.name)
