@@ -34,7 +34,7 @@ class Chain(object):
         return str(self._root)
 
     @staticmethod
-    def _find_frame_recursive(name, frame) -> typing.Optional[Frame]:
+    def _find_frame_recursive(name, frame: Frame) -> typing.Optional[Frame]:
         for child in frame.children:
             if child.name == name:
                 return child
@@ -64,7 +64,7 @@ class Chain(object):
         return self._find_link_recursive(name, self._root)
 
     @staticmethod
-    def _get_joint_parameter_names(frame, exclude_fixed=True) -> typing.Sequence[str]:
+    def _get_joint_parameter_names(frame: Frame, exclude_fixed=True) -> typing.Sequence[str]:
         joint_names = []
         if not (exclude_fixed and frame.joint.joint_type == "fixed"):
             joint_names.append(frame.joint.name)
@@ -72,8 +72,21 @@ class Chain(object):
             joint_names.extend(Chain._get_joint_parameter_names(child, exclude_fixed))
         return joint_names
 
+    @staticmethod
+    def _get_frame_names(frame: Frame, exclude_fixed=True) -> typing.Sequence[str]:
+        names = []
+        if not (exclude_fixed and frame.joint.joint_type == "fixed"):
+            names.append(frame.name)
+        for child in frame.children:
+            names.extend(Chain._get_frame_names(child, exclude_fixed))
+        return names
+
     def get_joint_parameter_names(self, exclude_fixed=True):
         names = self._get_joint_parameter_names(self._root, exclude_fixed)
+        return sorted(set(names), key=names.index)
+
+    def get_frame_names(self, exclude_fixed=True):
+        names = self._get_frame_names(self._root, exclude_fixed)
         return sorted(set(names), key=names.index)
 
     def add_frame(self, frame, parent_name):
@@ -104,7 +117,7 @@ class Chain(object):
             link_transforms.update(Chain._forward_kinematics(child, th_dict, trans))
         return link_transforms
 
-    def forward_kinematics(self, th, world=None):
+    def forward_kinematics(self, th, world=None, end_only=True):
         if world is None:
             world = tf.Transform3d()
         if not isinstance(th, dict):
