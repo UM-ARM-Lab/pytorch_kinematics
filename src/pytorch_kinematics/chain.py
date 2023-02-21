@@ -17,6 +17,10 @@ def ensure_2d_tensor(th, dtype, device):
 
 
 class Chain(object):
+    """Robot model that may be constructed from different descriptions via their respective parsers.
+    Fundamentally, a robot is modelled as a chain (not necessarily serial) of frames, with each frame
+    having a physical link and a number of child frames each connected via some joint."""
+
     def __init__(self, root_frame, dtype=torch.float32, device="cpu"):
         self._root = root_frame
         self.dtype = dtype
@@ -117,7 +121,21 @@ class Chain(object):
             link_transforms.update(Chain._forward_kinematics(child, th_dict, trans))
         return link_transforms
 
-    def forward_kinematics(self, th, world=None, end_only=True):
+    def forward_kinematics(self, th: torch.tensor, world: typing.Optional[tf.Transform3d] = None, end_only=True):
+        """
+        Return Transform3D wrappers around 4x4 homogenous transform matrices (called H)
+        that map points in link frame to world frame (via left multiplication Hx). Specifically,
+        (world)H(link), so it expects points in link coordinates on the right and results in world
+        frame coordinates.
+        :param th: B x J joint values, where B is any number of batch dimensions (including 0) and
+        J is the number of joints
+        :param world: Transform3D representing the (world)B(base) transform; if omitted, the base frame
+        is assumed to lie at the world origin.
+        :param end_only: Whether only the end-effector (for serial chains) transform should be returned.
+        This parameter does nothing for non-serial chains, but are there for API consistency.
+        :return: If end_only, then a single Transform3D mapping end effector to world. Else, a dictionary
+        from link name to Transform3D mapping that link to the world frame.
+        """
         if world is None:
             world = tf.Transform3d()
         if not isinstance(th, dict):
@@ -134,6 +152,9 @@ class Chain(object):
 
 
 class SerialChain(Chain):
+    """A serial Chain specialization with no branches and clearly defined end effector.
+    Note that serial chains can be generated from subsets of a Chain."""
+
     def __init__(self, chain, end_frame_name, root_frame_name="", **kwargs):
         if root_frame_name == "":
             super(SerialChain, self).__init__(chain._root, **kwargs)
