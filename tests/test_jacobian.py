@@ -4,11 +4,12 @@ import os
 import torch
 
 import pytorch_kinematics as pk
-from pytorch_kinematics import cfg
+
+TEST_DIR = os.path.dirname(__file__)
 
 
 def test_correctness():
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
     th = torch.tensor([0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0])
     J = chain.jacobian(th)
@@ -21,7 +22,7 @@ def test_correctness():
                                 [1, 0, 7.07106781e-01, 0, -7.07106781e-01, 0, 0]]])
     assert torch.allclose(J, J_expected, atol=1e-7)
 
-    chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
+    chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
     chain = pk.SerialChain(chain, "arm_wrist_roll_frame")
     th = torch.tensor([0.8, 0.2, -0.5, -0.3])
     J = chain.jacobian(th)
@@ -34,7 +35,7 @@ def test_correctness():
 
 
 def test_jacobian_at_different_loc_than_ee():
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
     th = torch.tensor([0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0])
     loc = torch.tensor([0.1, 0, 0])
@@ -66,7 +67,7 @@ def test_jacobian_at_different_loc_than_ee():
     assert torch.allclose(J, torch.cat((J_c1, J_c2)), atol=1e-7)
 
 def test_jacobian_y_joint_axis():
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
     th = torch.tensor([0])
     J = chain.jacobian(th)
     J_c3 = torch.tensor([ [ [0.], [0.], [-0.3], [0.], [1.], [0.] ] ])
@@ -75,7 +76,7 @@ def test_jacobian_y_joint_axis():
 
 def test_parallel():
     N = 100
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
     th = torch.cat(
         (torch.tensor([[0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]]), torch.rand(N, 7)))
@@ -90,7 +91,7 @@ def test_dtype_device():
     d = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float64
 
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
     chain = chain.to(dtype=dtype, device=d)
     th = torch.rand(N, 7, dtype=dtype, device=d)
@@ -103,7 +104,7 @@ def test_gradient():
     d = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float64
 
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(),
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
     chain = chain.to(dtype=dtype, device=d)
     th = torch.rand(N, 7, dtype=dtype, device=d, requires_grad=True)
@@ -114,7 +115,7 @@ def test_gradient():
 
 
 def test_jacobian_prismatic():
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "prismatic_robot.urdf")).read(), "link4")
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "prismatic_robot.urdf")).read(), "link4")
     th = torch.zeros(3)
     tg = chain.forward_kinematics(th)
     m = tg.get_matrix()

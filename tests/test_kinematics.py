@@ -4,7 +4,8 @@ import math
 import torch
 
 import pytorch_kinematics as pk
-from pytorch_kinematics import cfg
+
+TEST_DIR = os.path.dirname(__file__)
 
 
 def quat_pos_from_transform3d(tg):
@@ -21,7 +22,7 @@ def quaternion_equality(a, b):
 
 # test more complex robot and the MJCF parser
 def test_fk_mjcf():
-    chain = pk.build_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "ant.xml")).read())
+    chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read())
     chain = chain.to(dtype=torch.float64)
     print(chain)
     print(chain.get_joint_parameter_names())
@@ -39,7 +40,7 @@ def test_fk_mjcf():
 
 
 def test_fk_serial_mjcf():
-    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "ant.xml")).read(), 'front_left_foot')
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read(), 'front_left_foot')
     chain = chain.to(dtype=torch.float64)
     tg = chain.forward_kinematics([1.0, 1.0])
     pos, rot = quat_pos_from_transform3d(tg)
@@ -88,7 +89,7 @@ def test_fkik():
 
 
 def test_urdf():
-    chain = pk.build_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read())
+    chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read())
     chain.to(dtype=torch.float64)
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
     ret = chain.forward_kinematics(th)
@@ -99,7 +100,7 @@ def test_urdf():
 
 
 def test_urdf_serial():
-    chain = pk.build_serial_chain_from_urdf(open(os.path.join(cfg.TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
     chain.to(dtype=torch.float64)
     print(chain)
     print(chain.get_joint_parameter_names())
@@ -136,7 +137,7 @@ def test_urdf_serial():
 
 # test robot with prismatic and fixed joints
 def test_fk_simple_arm():
-    chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
+    chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
     chain = chain.to(dtype=torch.float64)
     # print(chain)
     # print(chain.get_joint_parameter_names())
@@ -156,12 +157,12 @@ def test_cuda():
     if torch.cuda.is_available():
         d = "cuda"
         dtype = torch.float64
-        chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
+        chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
         chain = chain.to(dtype=dtype, device=d)
 
         # NOTE: do it twice because we previously had an issue with default arguments
         #  like joint=Joint() causing spooky behavior
-        chain = pk.build_chain_from_sdf(open(os.path.join(cfg.TEST_DIR, "simple_arm.sdf")).read())
+        chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
         chain = chain.to(dtype=dtype, device=d)
 
         ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
@@ -198,7 +199,7 @@ def test_cuda():
 
 # FIXME: comment out because compound joints are no longer implemented
 # def test_fk_mjcf_humanoid():
-#     chain = pk.build_chain_from_mjcf(open(os.path.join(cfg.TEST_DIR, "humanoid.xml")).read())
+#     chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "humanoid.xml")).read())
 #     print(chain)
 #     print(chain.get_joint_parameter_names())
 #     th = {'left_knee': 0.0, 'right_knee': 0.0}
