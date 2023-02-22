@@ -1,6 +1,7 @@
 # PyTorch Robot Kinematics
 - Parallel and differentiable forward kinematics (FK) and Jacobian calculation
 - Load robot description from URDF, SDF, and MJCF formats 
+- SDF queries batched across configurations and points via [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric)
 
 # Installation
 ```shell
@@ -150,6 +151,85 @@ J = chain.jacobian(th, locations=loc)
 
 The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
 for a survey of ways to do so. Note that IK may be better performed through other means (but doing it through the Jacobian can give an end-to-end differentiable method).
+
+## SDF Queries
+See [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric) for the latest details, some instructions are pasted here:
+
+For many applications such as collision checking, it is useful to have the
+SDF of a multi-link robot in certain configurations.
+First, we create the robot model (loaded from URDF, SDF, MJCF, ...) with
+[pytorch kinematics](https://github.com/UM-ARM-Lab/pytorch_kinematics).
+For example, we will be using the KUKA 7 DOF arm model from pybullet data
+
+```python
+import os
+import torch
+import pybullet_data
+import pytorch_kinematics as pk
+import pytorch_volumetric as pv
+
+urdf = "kuka_iiwa/model.urdf"
+search_path = pybullet_data.getDataPath()
+full_urdf = os.path.join(search_path, urdf)
+chain = pk.build_serial_chain_from_urdf(open(full_urdf).read(), "lbr_iiwa_link_7")
+d = "cuda" if torch.cuda.is_available() else "cpu"
+
+chain = chain.to(device=d)
+# paths to the link meshes are specified with their relative path inside the URDF
+# we need to give them the path prefix as we need their absolute path to load
+s = pv.RobotSDF(chain, path_prefix=os.path.join(search_path, "kuka_iiwa"))
+```
+
+By default, each link will have a `MeshSDF`. To instead use `CachedSDF` for faster queries
+
+```python
+s = pv.RobotSDF(chain, path_prefix=os.path.join(search_path, "kuka_iiwa"),
+                link_sdf_cls=pv.cache_link_sdf_factory(resolution=0.02, padding=1.0, device=d))
+```
+
+Which when the `y=0.02` SDF slice is visualized:
+
+![sdf slice](https://i.imgur.com/Putw72A.png)
+
+With surface points corresponding to:
+
+![wireframe](https://i.imgur.com/L3atG9h.png)
+![solid](https://i.imgur.com/XiAks7a.png)
+
+Queries on this SDF is dependent on the joint configurations (by default all zero).
+**Queries are batched across configurations and query points**. For example, we have a batch of
+joint configurations to query
+
+```python
+th = torch.tensor([0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0], device=d)
+N = 200
+th_perturbation = torch.randn(N - 1, 7, device=d) * 0.1
+# N x 7 joint values
+th = torch.cat((th.view(1, -1), th_perturbation + th))
+```
+
+And also a batch of points to query (same points for each configuration):
+
+```python
+y = 0.02
+query_range = np.array([
+    [-1, 0.5],
+    [y, y],
+    [-0.2, 0.8],
+])
+# M x 3 points
+coords, pts = pv.get_coordinates_and_points_in_grid(0.01, query_range, device=s.device)
+```
+
+We set the batch of joint configurations and query:
+
+```python
+s.set_joint_configuration(th)
+# N x M SDF value
+# N x M x 3 SDF gradient
+sdf_val, sdf_grad = s(pts)
+```
+
 
 # Credits
 - `pytorch_kinematics/transforms` is extracted from [pytorch3d](https://github.com/facebookresearch/pytorch3d) with minor extensions.
