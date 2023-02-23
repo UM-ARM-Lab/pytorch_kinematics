@@ -66,11 +66,12 @@ def test_jacobian_at_different_loc_than_ee():
     J = chain.jacobian(th, locations=loc)
     assert torch.allclose(J, torch.cat((J_c1, J_c2)), atol=1e-7)
 
+
 def test_jacobian_y_joint_axis():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
     th = torch.tensor([0])
     J = chain.jacobian(th)
-    J_c3 = torch.tensor([ [ [0.], [0.], [-0.3], [0.], [1.], [0.] ] ])
+    J_c3 = torch.tensor([[[0.], [0.], [-0.3], [0.], [1.], [0.]]])
     assert torch.allclose(J, J_c3, atol=1e-7)
 
 
@@ -146,6 +147,28 @@ def test_jacobian_prismatic():
                                             [0., 0., 0.]]]))
 
 
+def test_comparison_to_autograd():
+    chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
+                                            "lbr_iiwa_link_7")
+
+    def get_pt(th):
+        return chain.forward_kinematics(th).transform_points(torch.zeros((1, 3))).squeeze(1)
+
+    N = 100
+    ths = (torch.tensor([[0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]]), torch.rand(N - 1, 7))
+    th = torch.cat(ths)
+
+    j1 = torch.autograd.functional.jacobian(get_pt, inputs=th)
+    # get_pt will produce N x 3
+    # jacobian will compute the jacobian of the N x 3 points with respect to each of the N x DOF inputs
+    # so j1 is N x 3 x N x DOF (3 since it only considers the position change)
+    # however, we know the ith point only has a non-zero jacobian with the ith input
+    j1_ = j1[range(N), :, range(N)]
+    j2 = chain.jacobian(th)
+    # we can only compare the positional parts
+    assert torch.allclose(j1_, j2[:, :3], atol=1e-6)
+
+
 if __name__ == "__main__":
     test_correctness()
     test_parallel()
@@ -153,3 +176,4 @@ if __name__ == "__main__":
     test_gradient()
     test_jacobian_prismatic()
     test_jacobian_at_different_loc_than_ee()
+    test_comparison_to_autograd()
