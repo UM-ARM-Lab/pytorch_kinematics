@@ -178,6 +178,18 @@ def test_comparison_to_autograd():
     assert torch.allclose(j1_, j2[:, :3], atol=1e-6)
     print(f"for N={N} on {d} autograd:{(pk_start - autograd_start) * 1000}ms "
           f"pytorch-kinematics:{(pk_end - pk_start) * 1000}ms")
+    # if we have functools (for pytorch>=1.13.0 it comes with installing pytorch)
+    try:
+        import functorch
+        ft_start = timer()
+        grad_func = functorch.vmap(functorch.jacrev(get_pt))
+        j3 = grad_func(th).squeeze(1)
+        ft_end = timer()
+        assert torch.allclose(j1_, j3, atol=1e-6)
+        assert torch.allclose(j3, j2[:, :3], atol=1e-6)
+        print(f"for N={N} on {d} functorch:{(ft_end - ft_start) * 1000}ms")
+    except:
+        pass
 
 
 if __name__ == "__main__":
