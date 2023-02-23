@@ -207,6 +207,15 @@ def test_cuda():
 #     print(ret)
 
 
+def test_mjcf_slide_joint_parsing():
+    # just testing that we can parse it without error
+    # the slide joint is not actually of a link to another link, but instead of the base to the world
+    # which we do not represent
+    chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "hopper.xml")).read())
+    print(chain.get_joint_parameter_names())
+    print(chain.get_frame_names())
+
+
 if __name__ == "__main__":
     test_fkik()
     test_fk_simple_arm()
@@ -215,3 +224,4 @@ if __name__ == "__main__":
     test_urdf()
     test_urdf_serial()
     # test_fk_mjcf_humanoid()
+    test_mjcf_slide_joint_parsing()

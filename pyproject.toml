@@ -1,6 +1,6 @@
 [project]
 name = "pytorch_kinematics"
-version = "0.5.1"
+version = "0.5.2"
 description = "Robot kinematics implemented in pytorch"
 readme = "README.md" # Optional
 
@@ -97,7 +97,6 @@ test = ["pytest"]
 [tool.setuptools]
 # If there are data files included in your packages that need to be
 # installed, specify them here.
-package-data = {"pytorch_kinematics" = ["tests/*.sdf", "tests/*.urdf", "tests/*.xml", "tests/meshes/*.obj"]}
 
 [build-system]
 # These are the assumed default build requirements from pip:
