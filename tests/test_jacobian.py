@@ -1,5 +1,6 @@
 import math
 import os
+from timeit import default_timer as timer
 
 import torch
 
@@ -150,23 +151,33 @@ def test_jacobian_prismatic():
 def test_comparison_to_autograd():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(),
                                             "lbr_iiwa_link_7")
+    d = "cuda" if torch.cuda.is_available() else "cpu"
+    chain = chain.to(device=d)
 
     def get_pt(th):
-        return chain.forward_kinematics(th).transform_points(torch.zeros((1, 3))).squeeze(1)
+        return chain.forward_kinematics(th).transform_points(
+            torch.zeros((1, 3), device=th.device, dtype=th.dtype)).squeeze(1)
 
-    N = 100
-    ths = (torch.tensor([[0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]]), torch.rand(N - 1, 7))
+    # compare the time taken
+    N = 1000
+    ths = (torch.tensor([[0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]], device=d),
+           torch.rand(N - 1, 7, device=d))
     th = torch.cat(ths)
 
-    j1 = torch.autograd.functional.jacobian(get_pt, inputs=th)
+    autograd_start = timer()
+    j1 = torch.autograd.functional.jacobian(get_pt, inputs=th, vectorize=True)
     # get_pt will produce N x 3
     # jacobian will compute the jacobian of the N x 3 points with respect to each of the N x DOF inputs
     # so j1 is N x 3 x N x DOF (3 since it only considers the position change)
     # however, we know the ith point only has a non-zero jacobian with the ith input
     j1_ = j1[range(N), :, range(N)]
+    pk_start = timer()
     j2 = chain.jacobian(th)
+    pk_end = timer()
     # we can only compare the positional parts
     assert torch.allclose(j1_, j2[:, :3], atol=1e-6)
+    print(f"for N={N} on {d} autograd:{(pk_start - autograd_start) * 1000}ms "
+          f"pytorch-kinematics:{(pk_end - pk_start) * 1000}ms")
 
 
 if __name__ == "__main__":
