@@ -185,22 +185,31 @@ class Transform3d:
             self._matrix = matrix.view(-1, 4, 4)
 
         if pos is not None:
+            ones = torch.ones(1, dtype=dtype, device=device)
             if not torch.is_tensor(pos):
                 pos = torch.tensor(pos, dtype=dtype, device=device)
             if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] == 1:
                 self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
-            self._matrix[:, :3, 3] = pos
+                ones = ones.repeat(pos.shape[0], 1)
+            # self._matrix[:, :3, 3] = pos
+            pos_h = torch.cat((pos, ones), dim=-1).reshape(-1, 4, 1)
+            self._matrix = torch.cat((self._matrix[:, :, :3], pos_h), dim=-1)
 
         if rot is not None:
+            zeros = torch.zeros(1, 3, dtype=dtype, device=device)
             if not torch.is_tensor(rot):
                 rot = torch.tensor(rot, dtype=dtype, device=device)
             if rot.shape[-1] == 4:
                 rot = quaternion_to_matrix(rot)
             elif rot.shape[-1] == 3 and (len(rot.shape) == 1 or rot.shape[-2] != 3):
                 rot = euler_angles_to_matrix(rot, DEFAULT_EULER_CONVENTION)
-            if rot.ndim == 3 and rot.shape[0] > 1 and self._matrix.shape[0] == 1:
-                self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
-            self._matrix[:, :3, :3] = rot
+            if rot.ndim == 3:
+                zeros = zeros.unsqueeze(0)
+                if rot.shape[0] > 1 and self._matrix.shape[0] == 1:
+                    self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
+                    zeros = zeros.repeat(rot.shape[0], 1, 1)
+            rot_h = torch.cat((rot, zeros), dim=-2).reshape(-1, 4, 3)
+            self._matrix = torch.cat((rot_h, self._matrix[:, :, 3].reshape(-1, 4, 1)), dim=-1)
 
         self._transforms = []  # store transforms to compose
         self._lu = None
