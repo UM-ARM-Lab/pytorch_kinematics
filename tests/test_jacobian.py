@@ -176,8 +176,8 @@ def test_comparison_to_autograd():
     pk_end = timer()
     # we can only compare the positional parts
     assert torch.allclose(j1_, j2[:, :3], atol=1e-6)
-    print(f"for N={N} on {d} autograd:{(pk_start - autograd_start) * 1000}ms "
-          f"pytorch-kinematics:{(pk_end - pk_start) * 1000}ms")
+    print(f"for N={N} on {d} autograd:{(pk_start - autograd_start) * 1000}ms")
+    print(f"for N={N} on {d} pytorch-kinematics:{(pk_end - pk_start) * 1000}ms")
     # if we have functools (for pytorch>=1.13.0 it comes with installing pytorch)
     try:
         import functorch

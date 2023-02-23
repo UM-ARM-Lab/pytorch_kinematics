@@ -185,13 +185,13 @@ class Transform3d:
             self._matrix = matrix.view(-1, 4, 4)
 
         if pos is not None:
-            ones = torch.ones(1, dtype=dtype, device=device)
+            ones = torch.ones([1], dtype=dtype, device=device)
             if not torch.is_tensor(pos):
                 pos = torch.tensor(pos, dtype=dtype, device=device)
-            if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] == 1:
-                self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
-                ones = ones.repeat(pos.shape[0], 1)
-            # self._matrix[:, :3, 3] = pos
+            if pos.ndim in (2, 3):
+                ones = ones.repeat(*pos.shape[:-1], 1)
+                if pos.ndim in (2, 3) and pos.shape[0] > 1 and self._matrix.shape[0] == 1:
+                    self._matrix = self._matrix.repeat(pos.shape[0], 1, 1)
             pos_h = torch.cat((pos, ones), dim=-1).reshape(-1, 4, 1)
             self._matrix = torch.cat((self._matrix[:, :, :3], pos_h), dim=-1)
 
