@@ -14,6 +14,21 @@ For development, clone repository somewhere, then `pip3 install -e .` to install
 
 See `tests` for code samples; some are also shown here.
 
+## Reference
+[![DOI](https://zenodo.org/badge/331721571.svg)](https://zenodo.org/badge/latestdoi/331721571)
+
+If you use this package in your research, consider citing
+```
+@software{Zhong_PyTorch_Kinematics_2023,
+author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin},
+doi = {10.5281/zenodo.7700588},
+month = {3},
+title = {{PyTorch Kinematics}},
+version = {v0.5.4},
+year = {2023}
+}
+```
+
 ## Forward Kinematics (FK)
 ```python
 import math
