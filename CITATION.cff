@@ -1,0 +1,15 @@
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Zhong
+    given-names: Sheng
+    orcid: https://orcid.org/0000-0002-8658-3061
+  - family-names: Power
+    given-names: Thomas
+    orcid: https://orcid.org/0000-0002-2439-3262
+  - family-names: Gupta
+    given-names: Ashwin
+title: PyTorch Kinematics
+doi: 10.5281/zenodo.7700588
+version: v0.5.4
+date-released: 2023-03-06
