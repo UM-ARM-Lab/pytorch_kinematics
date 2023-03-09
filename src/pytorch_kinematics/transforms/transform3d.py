@@ -204,10 +204,9 @@ class Transform3d:
             elif rot.shape[-1] == 3 and (len(rot.shape) == 1 or rot.shape[-2] != 3):
                 rot = euler_angles_to_matrix(rot, DEFAULT_EULER_CONVENTION)
             if rot.ndim == 3:
-                zeros = zeros.unsqueeze(0)
+                zeros = zeros.repeat(rot.shape[0], 1, 1)
                 if rot.shape[0] > 1 and self._matrix.shape[0] == 1:
                     self._matrix = self._matrix.repeat(rot.shape[0], 1, 1)
-                    zeros = zeros.repeat(rot.shape[0], 1, 1)
             rot_h = torch.cat((rot, zeros), dim=-2).reshape(-1, 4, 3)
             self._matrix = torch.cat((rot_h, self._matrix[:, :, 3].reshape(-1, 4, 1)), dim=-1)
 
