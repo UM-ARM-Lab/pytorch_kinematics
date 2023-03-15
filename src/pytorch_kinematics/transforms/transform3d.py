@@ -218,6 +218,9 @@ class Transform3d:
     def __len__(self):
         return self.get_matrix().shape[0]
 
+    def __getitem__(self, item):
+        return Transform3d(matrix=self.get_matrix()[item])
+
     def __repr__(self):
         m = self.get_matrix()
         pos = m[:, :3, 3]
