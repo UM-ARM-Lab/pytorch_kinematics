@@ -9,6 +9,7 @@ import torch
 
 from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix, \
     euler_angles_to_matrix
+from pytorch_kinematics.transforms.perturbation import sample_perturbations
 
 DEFAULT_EULER_CONVENTION = "XYZ"
 
@@ -420,6 +421,14 @@ class Transform3d:
 
     def rotate_axis_angle(self, *args, **kwargs):
         return self.compose(RotateAxisAngle(device=self.device, *args, **kwargs))
+
+    def sample_perturbations(self, num_perturbations, radian_sigma, translation_sigma):
+        mat = self.get_matrix()
+        if mat.shape[0] == 1:
+            mat = mat[0]
+        all_mats = sample_perturbations(mat, num_perturbations, radian_sigma, translation_sigma)
+        out = Transform3d(matrix=all_mats)
+        return out
 
     def clone(self):
         """
