@@ -574,7 +574,7 @@ class Rotate(Transform3d):
         elif R.shape[-1] == 3 and (len(R.shape) == 1 or R.shape[-2] != 3):
             R = euler_angles_to_matrix(R, DEFAULT_EULER_CONVENTION)
         else:
-            _check_valid_rotation_matrix(R, tol=orthogonal_tol)
+            _check_valid_rotation_matrix(R.view(-1, 3, 3), tol=orthogonal_tol)
         if R.dim() == 2:
             R = R[None]
 
