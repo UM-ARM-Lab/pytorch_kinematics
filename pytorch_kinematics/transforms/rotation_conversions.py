@@ -94,6 +94,7 @@ def _sqrt_positive_part(x):
     Returns torch.sqrt(torch.max(0, x))
     but with a zero subgradient where x is 0.
     """
+    return torch.sqrt(torch.max(torch.zeros_like(x), x))
     ret = torch.zeros_like(x)
     positive_mask = x > 0
     ret[positive_mask] = torch.sqrt(x[positive_mask])
