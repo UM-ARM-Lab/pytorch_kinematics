@@ -69,7 +69,7 @@ def calc_jacobian(serial_chain, th, tool=None):
     return j_w
 
 
-def calc_jacobian_and_hessian(serial_chain, th):
+def calc_jacobian_and_hessian(serial_chain, th, tool=None):
     """
         Calculates robot jacobian and kinematic hessian in the base frame
 
@@ -88,16 +88,64 @@ def calc_jacobian_and_hessian(serial_chain, th):
         N = th.shape[0]
     ndof = th.shape[1]
 
-    J = calc_jacobian(serial_chain, th)
+    J = calc_jacobian(serial_chain, th, tool)
 
     H = torch.zeros(N, 6, ndof, ndof, device=serial_chain.device, dtype=serial_chain.dtype)
-
+    # TODO can this be vectorized?
     for j in range(ndof):
         for i in range(j, ndof):
-            H[:, :3, j, i] = torch.cross(J[:, 3:, j], J[:, :3, i])
-            H[:, 3:, j, i] = torch.cross(J[:, 3:, j], J[:, 3:, i])
+            H[:, :3, i, j] = torch.cross(J[:, 3:, j], J[:, :3, i])
+            H[:, 3:, i, j] = torch.cross(J[:, 3:, j], J[:, 3:, i])
 
             if i != j:
-                H[:, :3, i, j] = H[:, :3, j, i]
+                H[:, :3, j, i] = H[:, :3, i, j]
 
     return J, H
+
+
+def calc_jacobian_hessian_dhessian(serial_chain, th, tool=None):
+    """
+    Computes all partial derivatives up the 3rd order
+
+        Returns:
+            J: torch.tensor of shape (N, 6, DOF) representing robot jacobian
+            H: torch.tensor of shape (N, 6, DOF, DOF) - kinematic Hessian. The kinematic hessian is the partial
+               derivative of the robot jacobian
+            dH: torch.tensor of shape (N, 6, DOF, DOF, DOF) partial derivatives of kinematic hessian
+    """
+    if not torch.is_tensor(th):
+        th = torch.tensor(th, dtype=serial_chain.dtype, device=serial_chain.device)
+    if len(th.shape) <= 1:
+        N = 1
+        th = th.view(1, -1)
+    else:
+        N = th.shape[0]
+    ndof = th.shape[1]
+
+    J, H = calc_jacobian_and_hessian(serial_chain, th, tool)
+
+    dH = torch.zeros(N, 6, ndof, ndof, ndof, dtype=serial_chain.dtype, device=serial_chain.device)
+
+    # TODO: can this be vectorized?
+    for j in range(ndof):
+        for i in range(j, ndof):
+            for k in range(ndof):
+
+                J_omega_i = J[:, 3:, i]
+                J_omega_j = J[:, 3:, j]
+                J_v_i = J[:, :3, i]
+
+                H_alpha_jk = H[:, 3:, j, k]
+                H_alpha_ik = H[:, 3:, i, k]
+                H_a_ik = H[:, :3, i, k]
+
+                dH[:, :3, i, j, k] = torch.cross(H_alpha_jk, J_v_i) + torch.cross(J_omega_j, H_a_ik)
+                dH[:, 3:, i, j, k] = torch.cross(H_alpha_jk, J_omega_i) + torch.cross(J_omega_j, H_alpha_ik)
+
+                if i != j:
+                    dH[:, :3, j, i, k] = dH[:, :3, i, j, k]
+
+    return J, H, dH
+
+
+
