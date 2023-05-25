@@ -180,6 +180,3 @@ class SerialChain(Chain):
         if locations is not None:
             locations = tf.Transform3d(pos=locations)
         return jacobian.calc_jacobian(self, th, tool=locations)
-
-    def jacobian_and_hessian(self, th):
-        return jacobian.calc_jacobian_and_hessian(self, th)
