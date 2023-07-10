@@ -57,7 +57,6 @@ dependencies = [# Optional
     'transformations',
     'absl-py',
     'lxml',
-    'dm_control',
     'pyyaml'
 ]
 
@@ -71,6 +70,7 @@ dependencies = [# Optional
 # projects.
 [project.optional-dependencies] # Optional
 test = ["pytest"]
+mujoco = ["dm_control"]
 
 # List URLs that are relevant to your project
 #
