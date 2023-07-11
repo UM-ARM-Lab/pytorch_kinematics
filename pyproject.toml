@@ -69,7 +69,7 @@ dependencies = [# Optional
 # Similar to `dependencies` above, these must be valid existing
 # projects.
 [project.optional-dependencies] # Optional
-test = ["pytest"]
+test = ["pytest", "dm_control"]
 mujoco = ["dm_control"]
 
 # List URLs that are relevant to your project
