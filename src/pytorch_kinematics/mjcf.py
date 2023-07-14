@@ -1,5 +1,3 @@
-from dm_control import mjcf
-
 import pytorch_kinematics.transforms as tf
 from . import chain
 from . import frame
@@ -59,6 +57,8 @@ def build_chain_from_mjcf(data):
     chain.Chain
         Chain object created from MJCF.
     """
+    from dm_control import mjcf
+
     model = mjcf.from_xml_string(data)
     root_body = model.worldbody.body[0]
     root_frame = frame.Frame(root_body.name + "_frame",
