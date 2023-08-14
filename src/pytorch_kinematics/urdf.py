@@ -27,7 +27,7 @@ def _convert_visual(visual):
         v_tf = _convert_transform(visual.origin)
         if isinstance(visual.geometry, Mesh):
             g_type = "mesh"
-            g_param = visual.geometry.filename
+            g_param = (visual.geometry.filename, visual.geometry.scale)
         elif isinstance(visual.geometry, Cylinder):
             g_type = "cylinder"
             g_param = (visual.geometry.radius, visual.geometry.length)
