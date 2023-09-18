@@ -1,5 +1,5 @@
 <mujoco model='humanoid'>
-    <compiler inertiafromgeom='true' angle='degree'/>
+    <compiler angle='degree'/>
 
     <default>
         <joint limited='true' damping='1' armature='0' />

@@ -1,49 +1,62 @@
+from typing import Union
+
+import mujoco
+from mujoco._structs import _MjModelBodyViews as MjModelBodyViews
+
 import pytorch_kinematics.transforms as tf
 from . import chain
 from . import frame
 
-JOINT_TYPE_MAP = {'hinge': 'revolute', "slide": "prismatic"}
+# Converts from MuJoCo joint types to pytorch_kinematics joint types
+JOINT_TYPE_MAP = {
+    mujoco.mjtJoint.mjJNT_HINGE: 'revolute',
+    mujoco.mjtJoint.mjJNT_SLIDE: "prismatic"
+}
 
 
-def geoms_to_visuals(geom):
+def body_to_geoms(m: mujoco.MjModel, body: MjModelBodyViews):
+    # Find all geoms which have body as parent
     visuals = []
-    for g in geom:
-        if g.type == 'capsule':
-            param = (g.size[0], g.fromto)
-        elif g.type == 'sphere':
-            param = g.size[0]
-        elif g.type == 'mesh':
-            param = None
-        else:
-            raise ValueError('Invalid geometry type %s.' % g.type)
-        visuals.append(frame.Visual(offset=tf.Transform3d(rot=g.quat, pos=g.pos), geom_type=g.type, geom_param=param))
+    for geom_id in range(m.ngeom):
+        geom = m.geom(geom_id)
+        if geom.bodyid == body.id:
+            visuals.append(frame.Visual(offset=tf.Transform3d(rot=geom.quat, pos=geom.pos), geom_type=geom.type,
+                                        geom_param=geom.size))
     return visuals
 
 
-def _build_chain_recurse(parent_frame, parent_body):
-    parent_frame.link.visuals = geoms_to_visuals(parent_body.geom)
-    for b in parent_body.body:
-        n_joints = len(b.joint)
-        if n_joints > 1:
-            raise ValueError("composite joints not supported (could implement this if needed)")
-        if n_joints == 1:
-            joint = b.joint[0]
-            child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis,
-                                      joint_type=JOINT_TYPE_MAP[joint.type])
-        else:
-            child_joint = frame.Joint(b.name + "_imaginary_fixed_joint")
-        child_link = frame.Link(b.name, offset=tf.Transform3d(rot=b.quat, pos=b.pos))
-        child_frame = frame.Frame(name=b.name, link=child_link, joint=child_joint)
-        parent_frame.children = parent_frame.children + (child_frame,)
-        _build_chain_recurse(child_frame, b)
+def _build_chain_recurse(m, parent_frame, parent_body):
+    parent_frame.link.visuals = body_to_geoms(m, parent_body)
+    # iterate through all bodies that are children of parent_body
+    for body_id in range(m.nbody):
+        body = m.body(body_id)
+        if body.parentid == parent_body.id and body_id != parent_body.id:
+            n_joints = body.jntnum
+            if n_joints > 1:
+                raise ValueError("composite joints not supported (could implement this if needed)")
+            if n_joints == 1:
+                # Find the joint for this body
+                for jntid in body.jntadr:
+                    joint = m.joint(jntid)
+                    child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis,
+                                              joint_type=JOINT_TYPE_MAP[joint.type[0]])
+            else:
+                child_joint = frame.Joint(body.name + "_fixed_joint")
+            child_link = frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
+            child_frame = frame.Frame(name=body.name, link=child_link, joint=child_joint)
+            parent_frame.children = parent_frame.children + (child_frame,)
+            _build_chain_recurse(m, child_frame, body)
 
-    for site in parent_body.site:
-        site_link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
-        site_frame = frame.Frame(name=site.name, link=site_link)
-        parent_frame.children = parent_frame.children + (site_frame,)
+    # iterate through all sites that are children of parent_body
+    for site_id in range(m.nsite):
+        site = m.site(site_id)
+        if site.bodyid == parent_body.id:
+            site_link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
+            site_frame = frame.Frame(name=site.name, link=site_link)
+            parent_frame.children = parent_frame.children + (site_frame,)
 
 
-def build_chain_from_mjcf(data):
+def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
     """
     Build a Chain object from MJCF data.
 
@@ -51,21 +64,24 @@ def build_chain_from_mjcf(data):
     ----------
     data : str
         MJCF string data.
+    body : str or int, optional
+        The name or index of the body to use as the root of the chain. If None, body idx=0 is used.
 
     Returns
     -------
     chain.Chain
         Chain object created from MJCF.
     """
-    from dm_control import mjcf
-
-    model = mjcf.from_xml_string(data)
-    root_body = model.worldbody.body[0]
+    m = mujoco.MjModel.from_xml_string(data)
+    if body is None:
+        root_body = m.body(0)
+    else:
+        root_body = m.body(body)
     root_frame = frame.Frame(root_body.name + "_frame",
                              link=frame.Link(root_body.name,
                                              offset=tf.Transform3d(rot=root_body.quat, pos=root_body.pos)),
                              joint=frame.Joint())
-    _build_chain_recurse(root_frame, root_body)
+    _build_chain_recurse(m, root_frame, root_body)
     return chain.Chain(root_frame)
 
 

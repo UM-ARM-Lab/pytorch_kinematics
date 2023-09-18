@@ -9,6 +9,9 @@ authors:
     orcid: https://orcid.org/0000-0002-2439-3262
   - family-names: Gupta
     given-names: Ashwin
+  - family-names: Mitrano
+    given-names: Peter
+    orcid: https://orcid.org/0000-0002-8701-9809
 title: PyTorch Kinematics
 doi: 10.5281/zenodo.7700588
 version: v0.5.4
