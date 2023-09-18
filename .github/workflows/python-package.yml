@@ -50,6 +50,16 @@ jobs:
           git clone https://github.com/google-deepmind/mujoco_menagerie
         working-directory: ${{ runner.workspace }}
 
+      - name: Debug
+        run: |
+          ls
+        working-directory: ${{ runner.workspace }}
+
+      - name: Debug
+        run: |
+          tree
+        working-directory: ${{ runner.workspace }}
+
       - name: Copy test_shadow_hand.py to mujoco_menagerie/shadow_hand
         run: |
           cp pytorch_kinematics/tests/menagerie_test_shadow_hand.py mujoco_menagerie/shadow_hand/test_shadow_hand.py
