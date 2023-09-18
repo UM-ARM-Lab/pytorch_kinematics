@@ -45,14 +45,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v3
       - name: Clone mujoco_menagerie repository
         run: |
           git clone https://github.com/google-deepmind/mujoco_menagerie
-        working-directory: ${{ runner.workspace }}
-
-      - name: Debug
-        run: |
-          ls
         working-directory: ${{ runner.workspace }}
 
       - name: Debug
