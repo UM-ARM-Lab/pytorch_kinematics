@@ -1,5 +1,5 @@
 <mujoco model="ant">
-  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
+  <compiler angle="degree"/>
   <option integrator="RK4" timestep="0.01"/>
   <custom>
     <numeric data="0.0 0.0 0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -1.0 0.0 -1.0 0.0 1.0" name="init_qpos"/>

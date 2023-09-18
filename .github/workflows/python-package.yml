@@ -52,7 +52,7 @@ jobs:
 
       - name: Copy test_shadow_hand.py to mujoco_menagerie/shadow_hand
         run: |
-          cp test_shadow_hand.py mujoco_menagerie/shadow_hand
+          cp tests/menagerie_test_shadow_hand.py mujoco_menagerie/shadow_hand/test_shadow_hand.py
         working-directory: ${{ runner.workspace }}
 
       - name: Navigate to shadow_hand folder
