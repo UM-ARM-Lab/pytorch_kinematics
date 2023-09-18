@@ -52,13 +52,8 @@ jobs:
 
       - name: Copy test_shadow_hand.py to mujoco_menagerie/shadow_hand
         run: |
-          cp tests/menagerie_test_shadow_hand.py mujoco_menagerie/shadow_hand/test_shadow_hand.py
+          cp pytorch_kinematics/tests/menagerie_test_shadow_hand.py mujoco_menagerie/shadow_hand/test_shadow_hand.py
         working-directory: ${{ runner.workspace }}
-
-      - name: Navigate to shadow_hand folder
-        run: |
-          cd mujoco_menagerie/shadow_hand
-        working-directory: ${{ runner.workspace }}/mujoco_menagerie
 
       - name: Run test_shadow_hand.py
         run: |
