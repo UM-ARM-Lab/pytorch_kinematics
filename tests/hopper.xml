@@ -1,17 +1,12 @@
 <mujoco model="hopper">
-  <compiler angle="degree" coordinate="global" inertiafromgeom="true"/>
+  <compiler angle="degree" inertiafromgeom="true"/>
   <default>
     <joint armature="1" damping="1" limited="true"/>
-    <geom conaffinity="1" condim="1" contype="1" margin="0.001" friction="0.8 .1 .1" material="geom" rgba="0.8 0.6 .4 1" solimp=".8 .8 .01" solref=".02 1"/>
+    <geom conaffinity="1" condim="1" contype="1" margin="0.001" friction="0.8 .1 .1"  rgba="0.8 0.6 .4 1" solimp=".8 .8 .01" solref=".02 1"/>
     <motor ctrllimited="true" ctrlrange="-.4 .4"/>
   </default>
   <option integrator="RK4" timestep="0.002"/>
   <worldbody>
-    <!-- CHANGE: body pos="" deleted for all bodies (you can also set pos="0 0 0", it works)
-    Interpretation of body pos="" depends on coordinate="global" above.
-    Bullet doesn't support global coordinates in bodies, little motivation to fix this, as long as it works without pos="" as well.
-    After this change, Hopper still loads and works in MuJoCo simulator.
-    -->
     <body name="torso">
       <joint armature="0" axis="1 0 0" damping="0" limited="false" name="ignore1" pos="0 0 0" stiffness="0" type="slide"/>
       <joint armature="0" axis="0 0 1" damping="0" limited="false" name="ignore2" pos="0 0 0" ref="1.25" stiffness="0" type="slide"/>
