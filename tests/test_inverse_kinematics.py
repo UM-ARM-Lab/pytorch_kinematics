@@ -37,7 +37,7 @@ def test_jacobian_follower():
 
     joints_high = torch.tensor([170, 120, 170, 120, 170, 120, 175], device=device)
     joint_limits = torch.stack((-joints_high, joints_high), dim=-1) * math.pi / 180.0
-    ik = pk.PseudoInverseIK(chain, max_iterations=50, num_retries=10000, joint_limits=joint_limits)
+    ik = pk.PseudoInverseIK(chain, max_iterations=100, num_retries=10000, joint_limits=joint_limits)
 
     # robot frame
     pos = torch.tensor([0.0, 0.0, 0.0], device=device)

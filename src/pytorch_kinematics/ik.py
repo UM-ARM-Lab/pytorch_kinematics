@@ -36,7 +36,7 @@ class InverseKinematics:
                  joint_limits: Optional[torch.Tensor] = None,
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
                  max_iterations: int = 100, lr: float = 0.5,
-                 debug=True,
+                 debug=False,
                  ):
         """
         :param serial_chain:
@@ -109,29 +109,37 @@ class PseudoInverseIK(InverseKinematics):
             qs = [q]
             pos_errors = []
             rot_errors = []
+
+        q.requires_grad = True
+        optimizer = torch.optim.Adam([q], lr=self.lr)
         for i in range(self.max_iterations):
-            # TODO early termination when below tolerance
-            # compute forward kinematics
-            fk = self.chain.forward_kinematics(q)
-            # N x 6 x DOF
-            J = self.chain.jacobian(q)
+            with torch.no_grad():
+                # TODO early termination when below tolerance
+                # compute forward kinematics
+                # fk = self.chain.forward_kinematics(q)
+                # N x 6 x DOF
+                J, m = self.chain.jacobian(q, ret_eef_pose=True)
 
-            # compute pose difference
-            m = fk.get_matrix()
-            pos_diff = target_pos - m[:, :3, 3]
-            pos_diff = pos_diff.view(-1, 3, 1)
-            rot_diff = target_rot_rpy - rotation_conversions.matrix_to_euler_angles(m[:, :3, :3], "XYZ")
-            rot_diff = rot_diff.view(-1, 3, 1)
-            # pose_diff = target - fk.get_matrix()
-            J_pos = J[:, :3, :]
-            J_pos_pinv = torch.pinverse(J_pos)
-            J_rot = J[:, 3:, :]
-            J_rot_pinv = torch.pinverse(J_rot)
-            # compute joint angle difference
-            dq_pos = J_pos_pinv @ pos_diff
-            dq_rot = J_rot_pinv @ rot_diff
+                # compute pose difference
+                # m = fk.get_matrix()
+                pos_diff = target_pos - m[:, :3, 3]
+                pos_diff = pos_diff.view(-1, 3, 1)
+                rot_diff = target_rot_rpy - rotation_conversions.matrix_to_euler_angles(m[:, :3, :3], "XYZ")
+                rot_diff = rot_diff.view(-1, 3, 1)
+                # pose_diff = target - fk.get_matrix()
+                J_pos = J[:, :3, :]
+                J_pos_pinv = torch.pinverse(J_pos)
+                J_rot = J[:, 3:, :]
+                J_rot_pinv = torch.pinverse(J_rot)
+                # compute joint angle difference
+                dq_pos = J_pos_pinv @ pos_diff
+                dq_rot = J_rot_pinv @ rot_diff
 
-            dq = dq_pos.squeeze(2) + dq_rot.squeeze(2)
+                dq = dq_pos.squeeze(2) + dq_rot.squeeze(2)
+
+            # q.grad = -dq
+            # optimizer.step()
+            # optimizer.zero_grad()
             q = q + self.lr * dq
             if self.debug:
                 qs.append(q)
