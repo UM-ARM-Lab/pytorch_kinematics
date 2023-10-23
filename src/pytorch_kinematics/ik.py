@@ -9,14 +9,19 @@ from matplotlib import pyplot as plt, cm as cm
 
 
 class IKSolution(NamedTuple):
+    # M is the total number of problems
     # N is the total number of attempts
+    # M x N tensor of position and rotation errors
     err_pos: torch.Tensor
     err_rot: torch.Tensor
-    # N boolean values indicating whether the solution converged (a solution could be found)
+    # M x N boolean values indicating whether the solution converged (a solution could be found)
     converged_pos: torch.Tensor
     converged_rot: torch.Tensor
-    # whether both position and rotation converged
     converged: torch.Tensor
+    # M whether any position and rotation converged for that problem
+    converged_pos_any: torch.tensor
+    converged_rot_any: torch.tensor
+    converged_any: torch.tensor
     # N x DOF tensor of joint angles; if converged[i] is False, then solutions[i] is undefined
     solutions: torch.Tensor
 
@@ -93,8 +98,9 @@ class InverseKinematics:
 
     def solve(self, target_poses: Transform3d) -> IKSolution:
         """
-        :param target_poses: (N, 4, 4) tensor
-        :return: (N, DOF) tensor of joint angles
+        Solve IK for the given target poses in robot frame
+        :param target_poses: (N, 4, 4) tensor, goal pose in robot frame
+        :return: IKSolution solutions
         """
         raise NotImplementedError()
 
@@ -103,15 +109,17 @@ class PseudoInverseIK(InverseKinematics):
     def solve(self, target_poses: Transform3d) -> IKSolution:
         target = target_poses.get_matrix()
 
+        M = target.shape[0]
+
         target_pos = target[:, :3, 3]
         # jacobian gives angular rotation about x,y,z axis of the base frame
         # convert target rot to desired rotation about x,y,z
         target_rot_rpy = rotation_conversions.matrix_to_euler_angles(target[:, :3, :3], "XYZ")
 
-        q = self.initial_config
+        # manually flatten it
+        q = self.initial_config.repeat(M, 1)
         # for logging, let's keep track of the joint angles at each iteration
         if self.debug:
-            qs = [q]
             pos_errors = []
             rot_errors = []
 
@@ -126,10 +134,13 @@ class PseudoInverseIK(InverseKinematics):
                 # fk = self.chain.forward_kinematics(q)
                 # N x 6 x DOF
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
+                # unflatten to broadcast with goal
+                m = m.view(M, -1, 4, 4)
 
-                pos_diff = target_pos - m[:, :3, 3]
+                pos_diff = target_pos.unsqueeze(1) - m[:, :, :3, 3]
                 pos_diff = pos_diff.view(-1, 3, 1)
-                rot_diff = target_rot_rpy - rotation_conversions.matrix_to_euler_angles(m[:, :3, :3], "XYZ")
+                rot_diff = target_rot_rpy.unsqueeze(1) - rotation_conversions.matrix_to_euler_angles(m[:, :, :3, :3],
+                                                                                                     "XYZ")
                 rot_diff = rot_diff.view(-1, 3, 1)
 
                 dx = torch.cat((pos_diff, rot_diff), dim=1)
@@ -145,7 +156,6 @@ class PseudoInverseIK(InverseKinematics):
             else:
                 q = q + self.lr * dq
             if self.debug:
-                qs.append(q)
                 pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
                 rot_errors.append(rot_diff.norm(dim=(1, 2)))
 
@@ -173,12 +183,18 @@ class PseudoInverseIK(InverseKinematics):
         # check convergence
         # fk = self.chain.forward_kinematics(q)
         # pose_diff = target - fk.get_matrix()
-        err_pos = pos_diff.squeeze(2).norm(dim=1)
-        err_rot = rot_diff.squeeze(2).norm(dim=1)
+        err_pos = pos_diff.reshape(M, -1, 3).norm(dim=-1)
+        err_rot = rot_diff.reshape(M, -1, 3).norm(dim=-1)
 
+        # problem (M) x retry (N)
         converged_pos = err_pos < self.pos_tolerance
         converged_rot = err_rot < self.rot_tolerance
 
+        converged_pos_any = converged_pos.any(dim=1)
+        converged_rot_any = converged_rot.any(dim=1)
+
         return IKSolution(converged_pos=converged_pos, converged_rot=converged_rot,
+                          converged_pos_any=converged_pos_any, converged_rot_any=converged_rot_any,
                           err_pos=err_pos, err_rot=err_rot,
-                          converged=converged_pos & converged_rot, solutions=q)
+                          converged=converged_pos & converged_rot, converged_any=converged_pos_any & converged_rot_any,
+                          solutions=q.reshape(M, -1, self.dof))
