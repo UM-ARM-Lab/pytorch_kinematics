@@ -1,8 +1,10 @@
 from pytorch_kinematics.chain import SerialChain
 from pytorch_kinematics.transforms import Transform3d
 from pytorch_kinematics.transforms import rotation_conversions
-from typing import NamedTuple, Union, List, Optional, Callable
+from typing import NamedTuple, Union, Optional, Callable
+import typing
 import torch
+import inspect
 from matplotlib import pyplot as plt, cm as cm
 
 
@@ -37,6 +39,7 @@ class InverseKinematics:
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
                  max_iterations: int = 100, lr: float = 0.5,
                  debug=False,
+                 optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd"
                  ):
         """
         :param serial_chain:
@@ -56,6 +59,8 @@ class InverseKinematics:
 
         self.max_iterations = max_iterations
         self.lr = lr
+        self.regularlization = 1e-9
+        self.optimizer_method = optimizer_method
 
         self.pos_tolerance = pos_tolerance
         self.rot_tolerance = rot_tolerance
@@ -110,8 +115,10 @@ class PseudoInverseIK(InverseKinematics):
             pos_errors = []
             rot_errors = []
 
-        q.requires_grad = True
-        optimizer = torch.optim.Adam([q], lr=self.lr)
+        optimizer = None
+        if inspect.isclass(self.optimizer_method) and issubclass(self.optimizer_method, torch.optim.Optimizer):
+            q.requires_grad = True
+            optimizer = torch.optim.Adam([q], lr=self.lr)
         for i in range(self.max_iterations):
             with torch.no_grad():
                 # TODO early termination when below tolerance
@@ -120,41 +127,29 @@ class PseudoInverseIK(InverseKinematics):
                 # N x 6 x DOF
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
 
-                # compute pose difference
-                # m = fk.get_matrix()
                 pos_diff = target_pos - m[:, :3, 3]
                 pos_diff = pos_diff.view(-1, 3, 1)
                 rot_diff = target_rot_rpy - rotation_conversions.matrix_to_euler_angles(m[:, :3, :3], "XYZ")
                 rot_diff = rot_diff.view(-1, 3, 1)
-                # pose_diff = target - fk.get_matrix()
-                J_pos = J[:, :3, :]
-                J_pos_pinv = torch.pinverse(J_pos)
-                J_rot = J[:, 3:, :]
-                J_rot_pinv = torch.pinverse(J_rot)
-                # compute joint angle difference
-                dq_pos = J_pos_pinv @ pos_diff
-                dq_rot = J_rot_pinv @ rot_diff
 
-                dq = dq_pos.squeeze(2) + dq_rot.squeeze(2)
+                dx = torch.cat((pos_diff, rot_diff), dim=1)
+                tmpA = J @ J.transpose(1, 2) + self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
+                A = torch.linalg.solve(tmpA, dx)
+                dq = J.transpose(1, 2) @ A
+                dq = dq.squeeze(2)
 
-            # q.grad = -dq
-            # optimizer.step()
-            # optimizer.zero_grad()
-            q = q + self.lr * dq
+            if optimizer is not None:
+                q.grad = -dq
+                optimizer.step()
+                optimizer.zero_grad()
+            else:
+                q = q + self.lr * dq
             if self.debug:
                 qs.append(q)
                 pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
                 rot_errors.append(rot_diff.norm(dim=(1, 2)))
 
         if self.debug:
-            # qs = torch.stack(qs, dim=0)
-            # fig, ax = plt.subplots(ncols=self.dof, figsize=(10, 5))
-            # for dof in range(self.dof):
-            #     # don't show everyone, skip some
-            #     for b in range(0, qs.shape[1], 5):
-            #         c = (b + 1) / qs.shape[1]
-            #         ax[dof].plot(qs[:, b, dof], c=cm.GnBu(c))
-
             # errors
             fig, ax = plt.subplots(ncols=2, figsize=(10, 5))
             pos_e = torch.stack(pos_errors, dim=0).cpu()
