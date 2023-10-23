@@ -43,6 +43,7 @@ class InverseKinematics:
                  joint_limits: Optional[torch.Tensor] = None,
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
                  max_iterations: int = 100, lr: float = 0.5,
+                 regularlization: float = 1e-9,
                  debug=False,
                  optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd"
                  ):
@@ -64,7 +65,7 @@ class InverseKinematics:
 
         self.max_iterations = max_iterations
         self.lr = lr
-        self.regularlization = 1e-9
+        self.regularlization = regularlization
         self.optimizer_method = optimizer_method
 
         self.pos_tolerance = pos_tolerance
