@@ -46,13 +46,9 @@ def calc_jacobian(serial_chain, th, tool=None):
 
         elif f.joint.joint_type == "prismatic":
             raise ValueError('Not supported')
-            # cnt += 1
-            # j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
-            # j_fl[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
 
         cur_frame_transform = f.get_transform(th[:, -cnt].view(N, 1)).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
-
     j_fl = torch.stack(j_fl, dim=2)
     j_fl = torch.flip(j_fl, dims=(2,))
     # currently j_fl is Jacobian in flange (end-effector) frame, convert to base/world frame

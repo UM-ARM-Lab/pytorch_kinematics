@@ -58,7 +58,7 @@ def _build_chain_recurse(root_frame, lmap, joints):
     return children
 
 
-def build_chain_from_urdf(data):
+def build_chain_from_urdf(data, end_link_names: list=None):
     """
     Build a Chain object from URDF data.
 
@@ -109,7 +109,12 @@ def build_chain_from_urdf(data):
     root_frame.link = frame.Link(root_link.name, _convert_transform(root_link.origin),
                                  [_convert_visual(root_link.visual)])
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
-    return chain.Chain(root_frame)
+
+    if end_link_names is not None:
+        end_frame_names = [end_link_name + '_frame' for end_link_name in end_link_names]
+    else:
+        end_frame_names = None
+    return chain.Chain(root_frame, end_frame_names=end_frame_names)
 
 
 def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
