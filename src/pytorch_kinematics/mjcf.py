@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional, Sequence
 
 import mujoco
 from mujoco._structs import _MjModelBodyViews as MjModelBodyViews
@@ -57,7 +57,7 @@ def _build_chain_recurse(m, parent_frame, parent_body):
             parent_frame.children = parent_frame.children + [site_frame, ]
 
 
-def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
+def build_chain_from_mjcf(data, base_body_idx: Union[None, str, int] = None, ee_links: Optional[Sequence[str]] = None):
     """
     Build a Chain object from MJCF data.
 
@@ -65,8 +65,9 @@ def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
     ----------
     data : str
         MJCF string data.
-    body : str or int, optional
+    base_body_idx : str or int, optional
         The name or index of the body to use as the root of the chain. If None, body idx=0 is used.
+    ee_links : Sequence[str], optional
 
     Returns
     -------
@@ -74,16 +75,16 @@ def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
         Chain object created from MJCF.
     """
     m = mujoco.MjModel.from_xml_string(data)
-    if body is None:
+    if base_body_idx is None:
         root_body = m.body(0)
     else:
-        root_body = m.body(body)
+        root_body = m.body(base_body_idx)
     root_frame = frame.Frame(root_body.name,
                              link=frame.Link(root_body.name,
                                              offset=tf.Transform3d(rot=root_body.quat, pos=root_body.pos)),
                              joint=frame.Joint())
     _build_chain_recurse(m, root_frame, root_body)
-    return chain.Chain(root_frame)
+    return chain.Chain(root_frame, ee_links=ee_links)
 
 
 def build_serial_chain_from_mjcf(data, end_link_name, root_link_name=""):

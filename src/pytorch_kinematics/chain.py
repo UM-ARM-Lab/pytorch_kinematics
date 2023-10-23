@@ -1,14 +1,15 @@
 from functools import lru_cache
-from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
-from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_d_to_pris_matrix
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence
 
 import numpy as np
 import torch
 
 import pytorch_kinematics.transforms as tf
-from pytorch_kinematics import jacobian
-from pytorch_kinematics.frame import Frame, Link, Joint
+from pytorch_kinematics.frame import Frame, Link
+from pytorch_kinematics.frame import Joint
+from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
+from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_d_to_pris_matrix
+from . import transforms
 
 
 def get_th_size(th):
@@ -56,10 +57,11 @@ class Chain:
     having a physical link and a number of child frames each connected via some joint.
     """
 
-    def __init__(self, root_frame, dtype=torch.float32, device="cpu"):
+    def __init__(self, root_frame, ee_links: Optional[List[str]] = None, dtype=torch.float32, device="cpu"):
         self._root = root_frame
         self.dtype = dtype
         self.device = device
+        self.ee_links = ee_links
 
         self.identity = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0)
 
@@ -420,6 +422,103 @@ class Chain:
     def get_joints_and_child_links(self):
         yield from Chain._get_joints_and_child_links(self._root)
 
+    def jacobian(self, th, locations=None):
+        if self.ee_links is None:
+            msg = "Cannot compute Jacobian for non-serial chain unless end-effector links (ee_links) is specified." \
+                  " The Jacobian is can be defined for any links, but we need to know which links you want."
+            raise ValueError(msg)
+        if locations is not None:
+            raise NotImplementedError()
+        jacs = []
+        for ee_i in self.ee_links:
+            jac_i = self.calc_jacobian(th, ee_link=ee_i)
+            jacs.append(jac_i)
+        jac = torch.cat(jacs, dim=1)
+        return jac
+
+    def calc_jacobian(self, th, tool: Optional[transforms.Transform3d] = None, ee_link: Optional[str] = None):
+        """
+        Return robot Jacobian J in base frame (N,6,DOF) where dot{x} = J dot{q}
+        The first 3 rows relate the translational velocities and the
+        last 3 rows relate the angular velocities.
+
+        tool is the transformation wrt the end effector; default is identity. If specified, will have to
+        specify for each of the N inputs
+
+        ee_links is the link name you want the jacobian with respect to; default is the last link in the chain.
+
+        FIXME: this code assumes the joint frame and the child link frame are the same
+        """
+        if not torch.is_tensor(th):
+            th = torch.tensor(th, dtype=self.dtype, device=self.device)
+        if len(th.shape) <= 1:
+            N = 1
+            th = th.view(1, -1)
+        else:
+            N = th.shape[0]
+        ndof = th.shape[1]
+
+        j_eef = torch.zeros((N, 6, ndof), dtype=self.dtype, device=self.device)
+
+        if tool is None:
+            cur_transform = transforms.Transform3d(device=self.device,
+                                                   dtype=self.dtype).get_matrix().repeat(N, 1, 1)
+        else:
+            if tool.dtype != self.dtype or tool.device != self.device:
+                tool = tool.to(device=self.device, copy=True, dtype=self.dtype)
+            cur_transform = tool.get_matrix()
+
+        if ee_link is None:
+            if isinstance(self, SerialChain):
+                base_to_ee_frames = self._serial_frames
+            else:
+                raise NotImplementedError("You must specify ee_link for non-serial chains.")
+        else:
+            # get all the links from the base to ee_link
+            base_to_ee_frames = self._generate_serial_chain_recurse(self._root, ee_link)
+
+        cnt = 0
+        for f in reversed(base_to_ee_frames):
+            if f.joint.joint_type == "revolute":
+                cnt += 1
+                # cur_transform transforms a point in eef frame into a point in joint frame, i.e. p_joint = curr_transform @ p_eef
+                axis_in_eef = cur_transform[:, :3, :3].transpose(1, 2) @ f.joint.axis
+                eef2joint_pos_in_joint = cur_transform[:, :3, 3].unsqueeze(2)
+                joint2eef_rot = cur_transform[:, :3, :3].transpose(1, 2)  # transpose of rotation is inverse
+                eef2joint_pos_in_eef = joint2eef_rot @ eef2joint_pos_in_joint
+                position_jacobian = torch.cross(axis_in_eef, eef2joint_pos_in_eef.squeeze(2), dim=1)
+                j_eef[:, :, -cnt] = torch.cat((position_jacobian, axis_in_eef), dim=-1)
+            elif f.joint.joint_type == "prismatic":
+                cnt += 1
+                j_eef[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
+            cur_frame_transform = f.get_transform(th[:, -cnt].view(N, 1)).get_matrix()
+            cur_transform = cur_frame_transform @ cur_transform
+
+        # currently j_eef is Jacobian in end-effector frame, convert to base/world frame
+        if isinstance(self, SerialChain):
+            ee_transform = self.forward_kinematics(th)
+        else:
+            fk_dict = self.forward_kinematics(th)
+            ee_transform = fk_dict[base_to_ee_frames[-1].link.name]
+        pose = ee_transform.get_matrix()
+        rotation = pose[:, :3, :3]
+        j_tr = torch.zeros((N, 6, 6), dtype=self.dtype, device=self.device)
+        j_tr[:, :3, :3] = rotation
+        j_tr[:, 3:, 3:] = rotation
+        j_w = j_tr @ j_eef
+        return j_w
+
+    @staticmethod
+    def _generate_serial_chain_recurse(root_frame, end_frame_name):
+        for child in root_frame.children:
+            if child.name == end_frame_name:
+                return [child]
+            else:
+                frames = SerialChain._generate_serial_chain_recurse(child, end_frame_name)
+                if not frames is None:
+                    return [child] + frames
+        return None
+
 
 class SerialChain(Chain):
     """
@@ -448,11 +547,6 @@ class SerialChain(Chain):
                 if not frames is None:
                     return [child] + frames
         return None
-
-    def jacobian(self, th, locations=None):
-        if locations is not None:
-            locations = tf.Transform3d(pos=locations)
-        return jacobian.calc_jacobian(self, th, tool=locations)
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
@@ -485,3 +579,8 @@ class SerialChain(Chain):
                 if frame.joint.joint_type != 'fixed':
                     th[jnt_idx] = partial_th_i
         return frame_indices, th
+
+    def jacobian(self, th, locations=None):
+        if locations is not None:
+            locations = tf.Transform3d(pos=locations)
+        return self.calc_jacobian(th, tool=locations)
