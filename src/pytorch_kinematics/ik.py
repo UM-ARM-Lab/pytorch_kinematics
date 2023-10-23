@@ -8,22 +8,61 @@ import inspect
 from matplotlib import pyplot as plt, cm as cm
 
 
-class IKSolution(NamedTuple):
-    # M is the total number of problems
-    # N is the total number of attempts
-    # M x N tensor of position and rotation errors
-    err_pos: torch.Tensor
-    err_rot: torch.Tensor
-    # M x N boolean values indicating whether the solution converged (a solution could be found)
-    converged_pos: torch.Tensor
-    converged_rot: torch.Tensor
-    converged: torch.Tensor
-    # M whether any position and rotation converged for that problem
-    converged_pos_any: torch.tensor
-    converged_rot_any: torch.tensor
-    converged_any: torch.tensor
-    # N x DOF tensor of joint angles; if converged[i] is False, then solutions[i] is undefined
-    solutions: torch.Tensor
+class IKSolution:
+    def __init__(self, dof, num_problems, num_retries, device="cpu"):
+        self.device = device
+        self.num_problems = num_problems
+        self.num_retries = num_retries
+        self.dof = dof
+        M = num_problems
+        # N x DOF tensor of joint angles; if converged[i] is False, then solutions[i] is undefined
+        self.solutions = torch.zeros((M, self.num_retries, self.dof), device=self.device)
+        self.remaining = torch.ones(M, dtype=torch.bool, device=self.device)
+
+        # M is the total number of problems
+        # N is the total number of attempts
+        # M x N tensor of position and rotation errors
+        self.err_pos = torch.zeros((M, self.num_retries), device=self.device)
+        self.err_rot = torch.zeros_like(self.err_pos)
+        # M x N boolean values indicating whether the solution converged (a solution could be found)
+        self.converged_pos = torch.zeros((M, self.num_retries), dtype=torch.bool, device=self.device)
+        self.converged_rot = torch.zeros_like(self.converged_pos)
+        self.converged = torch.zeros_like(self.converged_pos)
+
+        # M whether any position and rotation converged for that problem
+        self.converged_pos_any = torch.zeros_like(self.remaining)
+        self.converged_rot_any = torch.zeros_like(self.remaining)
+        self.converged_any = torch.zeros_like(self.remaining)
+
+    def update(self, q: torch.tensor, pos_diff: torch.tensor, rot_diff: torch.tensor, pos_tolerance, rot_tolerance,
+               use_remaining=False):
+        err_pos = pos_diff.reshape(-1, self.num_retries, 3).norm(dim=-1)
+        err_rot = rot_diff.reshape(-1, self.num_retries, 3).norm(dim=-1)
+        converged_pos = err_pos < pos_tolerance
+        converged_rot = err_rot < rot_tolerance
+        converged = converged_pos & converged_rot
+        converged_any = converged.any(dim=1)
+
+        # stop considering problems where any converged
+        qq = q.reshape(-1, self.num_retries, self.dof)
+
+        if use_remaining:
+            this_converged = self.remaining
+            converged_any[:] = True
+        else:
+            _r = self.remaining.clone()
+            self.remaining[_r] = _r[_r] & ~converged_any
+            this_converged = _r ^ self.remaining
+
+        self.solutions[this_converged] = qq[converged_any]
+        self.err_pos[this_converged] = err_pos[converged_any]
+        self.err_rot[this_converged] = err_rot[converged_any]
+        self.converged_pos[this_converged] = converged_pos[converged_any]
+        self.converged_rot[this_converged] = converged_rot[converged_any]
+        self.converged[this_converged] = converged[converged_any]
+        self.converged_any[this_converged] = converged_any[converged_any]
+
+        return converged_any
 
 
 # helper config sampling method
@@ -45,6 +84,7 @@ class InverseKinematics:
                  max_iterations: int = 100, lr: float = 0.5,
                  regularlization: float = 1e-9,
                  debug=False,
+                 early_stopping_any_converged=False,
                  optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd"
                  ):
         """
@@ -62,6 +102,7 @@ class InverseKinematics:
         joint_names = self.chain.get_joint_parameter_names(exclude_fixed=True)
         self.dof = len(joint_names)
         self.debug = debug
+        self.early_stopping_any_converged = early_stopping_any_converged
 
         self.max_iterations = max_iterations
         self.lr = lr
@@ -119,6 +160,8 @@ class PseudoInverseIK(InverseKinematics):
         # convert target rot to desired rotation about x,y,z
         target_rot_rpy = rotation_conversions.matrix_to_euler_angles(target[:, :3, :3], "XYZ")
 
+        sol = IKSolution(self.dof, M, self.num_retries, device=self.device)
+
         q = self.initial_config
         if q.numel() == M * self.dof * self.num_retries:
             q = q.reshape(-1, self.dof)
@@ -145,7 +188,7 @@ class PseudoInverseIK(InverseKinematics):
                 # N x 6 x DOF
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
                 # unflatten to broadcast with goal
-                m = m.view(M, -1, 4, 4)
+                m = m.view(-1, self.num_retries, 4, 4)
 
                 pos_diff = target_pos.unsqueeze(1) - m[:, :, :3, 3]
                 pos_diff = pos_diff.view(-1, 3, 1)
@@ -165,9 +208,21 @@ class PseudoInverseIK(InverseKinematics):
                 optimizer.zero_grad()
             else:
                 q = q + self.lr * dq
-            if self.debug:
-                pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
-                rot_errors.append(rot_diff.norm(dim=(1, 2)))
+
+            with torch.no_grad():
+                if self.early_stopping_any_converged:
+                    converged_any = sol.update(q, pos_diff, rot_diff, self.pos_tolerance, self.rot_tolerance,
+                                               use_remaining=False)
+                    # stop considering problems where any converged
+                    qq = q.reshape(-1, self.num_retries, self.dof)
+                    q = qq[~converged_any]
+                    q = q.reshape(-1, self.dof)
+                    target_pos = target_pos[~converged_any]
+                    target_rot_rpy = target_rot_rpy[~converged_any]
+
+                if self.debug:
+                    pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
+                    rot_errors.append(rot_diff.norm(dim=(1, 2)))
 
         if self.debug:
             # errors
@@ -190,21 +245,5 @@ class PseudoInverseIK(InverseKinematics):
             ax[1].set_ylabel("rotation error")
             plt.show()
 
-        # check convergence
-        # fk = self.chain.forward_kinematics(q)
-        # pose_diff = target - fk.get_matrix()
-        err_pos = pos_diff.reshape(M, -1, 3).norm(dim=-1)
-        err_rot = rot_diff.reshape(M, -1, 3).norm(dim=-1)
-
-        # problem (M) x retry (N)
-        converged_pos = err_pos < self.pos_tolerance
-        converged_rot = err_rot < self.rot_tolerance
-
-        converged_pos_any = converged_pos.any(dim=1)
-        converged_rot_any = converged_rot.any(dim=1)
-
-        return IKSolution(converged_pos=converged_pos, converged_rot=converged_rot,
-                          converged_pos_any=converged_pos_any, converged_rot_any=converged_rot_any,
-                          err_pos=err_pos, err_rot=err_rot,
-                          converged=converged_pos & converged_rot, converged_any=converged_pos_any & converged_rot_any,
-                          solutions=q.reshape(M, -1, self.dof))
+        sol.update(q, pos_diff, rot_diff, self.pos_tolerance, self.rot_tolerance, use_remaining=True)
+        return sol
