@@ -28,7 +28,7 @@ def _make_robot_translucent(robot_id, alpha=0.4):
 
 
 def test_jacobian_follower():
-    pytorch_seed.seed(0)
+    pytorch_seed.seed(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # device = "cpu"
     urdf = "kuka_iiwa/model.urdf"
@@ -39,7 +39,7 @@ def test_jacobian_follower():
 
     joints_high = torch.tensor([170, 120, 170, 120, 170, 120, 175], device=device)
     joint_limits = torch.stack((-joints_high, joints_high), dim=-1) * math.pi / 180.0
-    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=1000, joint_limits=joint_limits,
+    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=100, joint_limits=joint_limits,
                             lr=0.5)
 
     # robot frame
@@ -48,7 +48,7 @@ def test_jacobian_follower():
     rob_tf = pk.Transform3d(pos=pos, rot=rot, device=device)
 
     # world frame goal
-    M = 10
+    M = 100
     # generate random goal positions
     goal_pos = torch.rand(M, 3, device=device) * 0.5
     # also generate random goal rotations
@@ -75,7 +75,7 @@ def test_jacobian_follower():
         yaw = 90
         pitch = -55
         dist = 1.
-        target = goal_pos.cpu().numpy()
+        target = goal_pos[0].cpu().numpy()
         p.resetDebugVisualizerCamera(dist, yaw, pitch, target)
 
         p.loadURDF("plane.urdf", [0, 0, 0], useFixedBase=True)
@@ -91,19 +91,25 @@ def test_jacobian_follower():
         # place a translucent sphere at the goal
         show_max_num_retries_per_goal = 10
         for goal_num in range(M):
-            visId = p.createVisualShape(p.GEOM_SPHERE, radius=0.05, rgbaColor=[0., 1., 0., 0.5])
+            # draw cone to indicate pose instead of sphere
+            visId = p.createVisualShape(p.GEOM_MESH, fileName="meshes/cone.obj", meshScale=1.0,
+                                        rgbaColor=[0., 1., 0., 0.5])
+            # visId = p.createVisualShape(p.GEOM_SPHERE, radius=0.05, rgbaColor=[0., 1., 0., 0.5])
+            r = goal_rot[goal_num]
+            xyzw = pk.wxyz_to_xyzw(pk.matrix_to_quaternion(pk.euler_angles_to_matrix(r, "XYZ")))
             goalId = p.createMultiBody(baseMass=0, baseVisualShapeIndex=visId,
-                                       basePosition=goal_pos[goal_num].cpu().numpy())
+                                       basePosition=goal_pos[goal_num].cpu().numpy(),
+                                       baseOrientation=xyzw.cpu().numpy())
             # print how many retries converged for this one
             print("Goal %d converged %d / %d" % (
-            goal_num, sol.converged[goal_num].sum(), sol.converged[goal_num].numel()))
+                goal_num, sol.converged[goal_num].sum(), sol.converged[goal_num].numel()))
 
             for i, q in enumerate(sol.solutions[goal_num]):
                 if i > show_max_num_retries_per_goal:
                     break
-                input("Press enter to continue")
                 for dof in range(q.shape[0]):
                     p.resetJointState(armId, dof, q[dof])
+                input("Press enter to continue")
 
             p.removeBody(goalId)
 

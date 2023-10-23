@@ -81,6 +81,8 @@ class InverseKinematics:
         else:
             if initial_configs.shape[1] != self.dof:
                 raise ValueError("initial_configs must have shape (N, %d)" % self.dof)
+        # could give a batch of initial configs
+        self.num_retries = self.initial_config.shape[-2]
 
     def sample_configs(self, num_configs: int) -> torch.Tensor:
         if self.config_sampling_method == "uniform":
@@ -116,8 +118,15 @@ class PseudoInverseIK(InverseKinematics):
         # convert target rot to desired rotation about x,y,z
         target_rot_rpy = rotation_conversions.matrix_to_euler_angles(target[:, :3, :3], "XYZ")
 
-        # manually flatten it
-        q = self.initial_config.repeat(M, 1)
+        q = self.initial_config
+        if q.numel() == M * self.dof * self.num_retries:
+            q = q.reshape(-1, self.dof)
+        elif q.numel() == self.dof * self.num_retries:
+            # repeat and manually flatten it
+            q = self.initial_config.repeat(M, 1)
+        else:
+            raise ValueError(
+                f"initial_config must have shape ({M}, {self.num_retries}, {self.dof}) or ({self.num_retries}, {self.dof})")
         # for logging, let's keep track of the joint angles at each iteration
         if self.debug:
             pos_errors = []
