@@ -37,11 +37,10 @@ class Chain(object):
         self.device = device
 
         self.identity = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0)
-        low, high = self.get_joint_limits()
-        self.low = torch.tensor(low, device=self.device, dtype=self.dtype)
-        self.high = torch.tensor(high, device=self.device, dtype=self.dtype)
-        self.sphere_indices = None
-        self.precompute_fk_info()
+        # low, high = self.get_joint_limits()
+        # self.low = torch.tensor(low, device=self.device, dtype=self.dtype)
+        # self.high = torch.tensor(high, device=self.device, dtype=self.dtype)
+        # self.precompute_fk_info()
 
     def precompute_fk_info(self):
         self.parent_indices = []
@@ -101,8 +100,8 @@ class Chain(object):
                               self.joint_offsets]
         self.joint_weights = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_weights]
-        self.low = self.low.to(dtype=self.dtype, device=self.device)
-        self.high = self.high.to(dtype=self.dtype, device=self.device)
+        # self.low = self.low.to(dtype=self.dtype, device=self.device)
+        # self.high = self.high.to(dtype=self.dtype, device=self.device)
 
         return self
 

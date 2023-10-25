@@ -2,6 +2,7 @@
 
 import functools
 from typing import Optional
+from warnings import warn
 
 import torch
 import torch.nn.functional as F
@@ -449,7 +450,17 @@ def quaternion_apply(quaternion, point):
     return out[..., 1:]
 
 
-def axis_and_angle_to_matrix_directly(axis, theta):
+def axis_and_angle_to_matrix(axis, theta):
+    """
+    Works with any number of batch dimensions.
+
+    Args:
+        axis: [..., 3]
+        theta: [ ...]
+
+    Returns: [..., 3, 3]
+
+    """
     # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
     c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
     one_minus_c = 1 - c
@@ -464,9 +475,9 @@ def axis_and_angle_to_matrix_directly(axis, theta):
     r20 = kz * kx * one_minus_c - ky * s
     r21 = kz * ky * one_minus_c + kx * s
     r22 = c + kz * kz * one_minus_c
-    rot = torch.stack([torch.cat([r00, r01, r02], -1),
-                       torch.cat([r10, r11, r12], -1),
-                       torch.cat([r20, r21, r22], -1)], -2)
+    rot = torch.stack([torch.stack([r00, r01, r02], -1),
+                       torch.stack([r10, r11, r12], -1),
+                       torch.stack([r20, r21, r22], -1)], -2)
     return rot
 
 
@@ -485,6 +496,8 @@ def axis_angle_to_matrix(axis_angle):
     Returns:
         Rotation matrices as tensor of shape (..., 3, 3).
     """
+    warn('This is deprecated because it is slow. Use axis_and_angle_to_matrix or zpk_cpp.axis_and_angle_to_matrix',
+         DeprecationWarning, stacklevel=2)
     return quaternion_to_matrix(axis_angle_to_quaternion(axis_angle))
 
 

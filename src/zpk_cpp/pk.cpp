@@ -10,6 +10,7 @@ torch::Tensor axis_and_angle_to_matrix(torch::Tensor axis,
    * cos is not that precise for float32, you may want to use float64
    * axis is [b, n, 3]
    * theta is [b, n]
+   * Return is [b, n, 4, 4]
    */
   auto b = axis.size(0);
   auto n = axis.size(1);
@@ -88,6 +89,6 @@ fk(torch::Tensor link_indices, torch::Tensor axes, torch::Tensor th,
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("axis_and_angle_to_matrix", &axis_and_angle_to_matrix,
-        "axis_and_angle_to_matrix");
+        "axis_and_angle_to_matrix", py::arg("axis"), py::arg("theta"));
   m.def("fk", &fk, "fk");
 }

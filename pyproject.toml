@@ -30,59 +30,29 @@ maintainers = [
 ]
 
 # Classifiers help users find your project by categorizing it.
-#
 # For a list of valid classifiers, see https://pypi.org/classifiers/
 classifiers = [# Optional
     "Development Status :: 4 - Beta",
-    # Indicate who your project is intended for
     "Intended Audience :: Developers",
-    # Pick your license as you wish
     "License :: OSI Approved :: MIT License",
-    # Specify the Python versions you support here. In particular, ensure
-    # that you indicate you support Python 3. These classifiers are *not*
-    # checked by "pip install". See instead "python_requires" below.
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
 ]
 
-# This field lists other packages that your project depends on to run.
-# Any package you put here will be installed by pip when your project is
-# installed, so they must be valid existing projects.
-#
-# For an analysis of this field vs pip's requirements files see:
-# https://packaging.python.org/discussions/install-requires-vs-requirements/
-dependencies = [# Optional
-    'torch',
-    'numpy',
-    'transformations',
+dependencies = [
     'absl-py',
     'lxml',
-    'pyyaml'
+    'numpy',
+    'pyyaml',
+    'torch',
+    'transformations',
 ]
 
-# List additional groups of dependencies here (e.g. development
-# dependencies). Users will be able to install these using the "extras"
-# syntax, for example:
-#
-#   $ pip install sampleproject[dev]
-#
-# Similar to `dependencies` above, these must be valid existing
-# projects.
-[project.optional-dependencies] # Optional
+[project.optional-dependencies]
 test = ["pytest", "mujoco"]
 mujoco = ["mujoco"]
 
-# List URLs that are relevant to your project
-#
-# This field corresponds to the "Project-URL" and "Home-Page" metadata fields:
-# https://packaging.python.org/specifications/core-metadata/#project-url-multiple-use
-# https://packaging.python.org/specifications/core-metadata/#home-page-optional
-#
-# Examples listed include a pattern for specifying where the package tracks
-# issues, where the source is hosted, where to say thanks to the package
-# maintainers, and where to support the project financially. The key is
-# what's used to render the link text on PyPI.
-[project.urls]  # Optional
+[project.urls]
 "Homepage" = "https://github.com/UM-ARM-Lab/pytorch_kinematics"
 "Bug Reports" = "https://github.com/UM-ARM-Lab/pytorch_kinematics/issues"
 "Source" = "https://github.com/UM-ARM-Lab/pytorch_kinematics"
@@ -99,7 +69,7 @@ mujoco = ["mujoco"]
 # installed, specify them here.
 
 [build-system]
-# These are the assumed default build requirements from pip:
-# https://pip.pypa.io/en/stable/reference/pip/#pep-517-and-518-support
-requires = ["setuptools>=43.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+# Including torch and ninja here are needed to build the native code.
+# They will be installed as dependencies during the build, which can take a while the first time.
+requires = ["setuptools>=60.0.0", "wheel", "torch", "ninja"]
+build-backend= "setuptools.build_meta"
