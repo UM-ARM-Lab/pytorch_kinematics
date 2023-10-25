@@ -14,7 +14,7 @@ def ensure_2d_tensor(th, dtype, device):
         th = torch.tensor(th, dtype=dtype, device=device)
     if len(th.shape) <= 1:
         N = 1
-        th = th.view(1, -1)
+        th = th.reshape(1, -1)
     else:
         N = th.shape[0]
     return th, N
@@ -26,10 +26,12 @@ def transform_direction(pose, v):
     return new_v
 
 
-class Chain(object):
-    """Robot model that may be constructed from different descriptions via their respective parsers.
+class Chain:
+    """
+    Robot model that may be constructed from different descriptions via their respective parsers.
     Fundamentally, a robot is modelled as a chain (not necessarily serial) of frames, with each frame
-    having a physical link and a number of child frames each connected via some joint."""
+    having a physical link and a number of child frames each connected via some joint.
+    """
 
     def __init__(self, root_frame, dtype=torch.float32, device="cpu"):
         self._root = root_frame
@@ -37,12 +39,17 @@ class Chain(object):
         self.device = device
 
         self.identity = torch.eye(4, device=self.device, dtype=self.dtype).unsqueeze(0)
-        # low, high = self.get_joint_limits()
-        # self.low = torch.tensor(low, device=self.device, dtype=self.dtype)
-        # self.high = torch.tensor(high, device=self.device, dtype=self.dtype)
-        # self.precompute_fk_info()
+
+        low, high = self.get_joint_limits()
+        self.low = torch.tensor(low, device=self.device, dtype=self.dtype)
+        self.high = torch.tensor(high, device=self.device, dtype=self.dtype)
+
+        # FIXME: the init of this class is super confusing
+        self._precomputed = False
 
     def precompute_fk_info(self):
+        self._precomputed = True
+
         self.parent_indices = []
         self.joint_indices = []
         n = len(self.get_joint_parameter_names())
@@ -100,8 +107,8 @@ class Chain(object):
                               self.joint_offsets]
         self.joint_weights = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_weights]
-        # self.low = self.low.to(dtype=self.dtype, device=self.device)
-        # self.high = self.high.to(dtype=self.dtype, device=self.device)
+        self.low = self.low.to(dtype=self.dtype, device=self.device)
+        self.high = self.high.to(dtype=self.dtype, device=self.device)
 
         return self
 
@@ -145,6 +152,14 @@ class Chain(object):
     def get_joints(self, exclude_fixed=True):
         joints = self._get_joints(self._root, exclude_fixed=exclude_fixed)
         return joints
+
+    def get_joint_parameter_names(self, exclude_fixed=True):
+        names = []
+        for f in self.get_joints(exclude_fixed=exclude_fixed):
+            if exclude_fixed and f.joint.joint_type == 'fixed':
+                continue
+            names.append(f.joint.name)
+        return names
 
     @staticmethod
     def _find_joint_recursive(name, frame):
@@ -247,7 +262,7 @@ class Chain(object):
         else:
             trans = world
 
-        joint_trans = root.get_transform(th.view(N, 1))
+        joint_trans = root.get_transform(th.reshape(N, 1))
         trans = trans.compose(joint_trans)
         link_transforms[root.link.name] = trans
 
@@ -290,6 +305,10 @@ class Chain(object):
         then instead of recursion we can just iterate in order and use parent pointers. This
         reduces function call overhead and moves some of the indexing work to the constructor.
         """
+        if not self._precomputed:
+            print("Precomputing FK info...")
+            self.precompute_fk_info()
+
         if isinstance(th, np.ndarray):
             th = torch.tensor(th, device=self.device, dtype=self.dtype)
 
@@ -428,14 +447,6 @@ class SerialChain(Chain):
                     return [child] + frames
         return None
 
-    def get_joint_parameter_names(self, exclude_fixed=True):
-        names = []
-        for f in self._serial_frames:
-            if exclude_fixed and f.joint.joint_type == 'fixed':
-                continue
-            names.append(f.joint.name)
-        return names
-
     def forward_kinematics(self, th, world=None, end_only=True):
         if world is None:
             world = tf.Transform3d()
@@ -454,7 +465,8 @@ class SerialChain(Chain):
             if f.joint.joint_type == "fixed":  # If fixed
                 trans = trans.compose(f.get_transform(zeros))
             else:
-                trans = trans.compose(f.get_transform(th[:, theta_idx].view(N, 1)))
+                # trans = trans.compose(f.get_transform(th[:, theta_idx].reshape(N, 1)))
+                trans = trans.compose(f.get_transform(th[:, theta_idx]))
                 theta_idx += 1
 
             link_transforms[f.link.name] = trans

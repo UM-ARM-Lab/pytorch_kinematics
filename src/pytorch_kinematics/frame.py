@@ -65,6 +65,11 @@ class Joint(object):
         # normalize axis to have norm 1 (needed for correct representation scaling with theta)
         self.axis = self.axis / self.axis.norm()
 
+        if limits is None:
+            if joint_type != 'fixed':
+                raise RuntimeError("limits must be specified for joint {}".format(name))
+            else:
+                self.limits = (0.0, 0.0)
         self.limits = limits
 
     def to(self, *args, **kwargs):

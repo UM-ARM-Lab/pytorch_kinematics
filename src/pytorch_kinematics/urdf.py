@@ -47,9 +47,10 @@ def _build_chain_recurse(root_frame, lmap, joints):
     children = []
     for j in joints:
         if j.parent == root_frame.link.name:
+
             child_frame = frame.Frame(j.child + "_frame")
             child_frame.joint = frame.Joint(j.name, offset=_convert_transform(j.origin),
-                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis)
+                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=(j.limit.lower, j.limit.upper))
             link = lmap[j.child]
             child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
                                           visuals=[_convert_visual(link.visual)])
