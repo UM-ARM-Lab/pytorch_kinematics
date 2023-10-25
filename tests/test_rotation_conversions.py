@@ -13,35 +13,13 @@ def test_axis_angle_to_matrix_perf():
 
     axis_angle = torch.randn([N, 3], device='cuda', dtype=torch.float64)
     axis_1d = torch.tensor([1., 0, 0], device='cuda', dtype=torch.float64)  # in the FK code this is NOT batched!
-    theta = axis_angle.norm(dim=1, keepdim=False)
+    theta = axis_angle.norm(dim=1, keepdim=True)
 
     dt1 = timeit.timeit(lambda: axis_angle_to_matrix(axis_angle), number=number)
     print(f'Old method: {dt1:.5f}')
 
     dt2 = timeit.timeit(lambda: axis_and_angle_to_matrix(axis=axis_1d, theta=theta), number=number)
     print(f'New method: {dt2:.5f}')
-
-
-def test_axis_angle_to_matrix_perf_zpk():
-    # Seems the C++ version is not faster than then python version for this case.
-
-    # now test perf for a higher dim version, which has batches (B) of joints (N)
-    number = 100
-    N = 10
-    B = 10_000
-    axis = torch.randn([B, N, 3], device='cuda', dtype=torch.float64)
-    axis = axis / axis.norm(dim=2, keepdim=True)
-    theta = torch.randn([B, N], device='cuda', dtype=torch.float64)
-
-    dt1 = timeit.timeit(lambda: axis_and_angle_to_matrix(axis, theta), number=number)
-    print(f'Py: {dt1:.5f}')
-
-    dt2 = timeit.timeit(lambda: zpk_cpp.axis_and_angle_to_matrix(axis, theta), number=number)
-    print(f'Cpp: {dt2:.5f}')
-
-    a1 = axis_and_angle_to_matrix(axis, theta)
-    a2 = zpk_cpp.axis_and_angle_to_matrix(axis, theta)
-    torch.testing.assert_allclose(a1, a2[..., :3, :3])
 
 
 def test_pos_rot_conversion():
@@ -57,6 +35,5 @@ def test_pos_rot_conversion():
 
 
 if __name__ == '__main__':
-    test_axis_angle_to_matrix_perf_zpk()
     test_axis_angle_to_matrix_perf()
     test_pos_rot_conversion()

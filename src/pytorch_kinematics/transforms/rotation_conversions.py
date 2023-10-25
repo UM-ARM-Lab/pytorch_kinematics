@@ -475,9 +475,9 @@ def axis_and_angle_to_matrix(axis, theta):
     r20 = kz * kx * one_minus_c - ky * s
     r21 = kz * ky * one_minus_c + kx * s
     r22 = c + kz * kz * one_minus_c
-    rot = torch.stack([torch.stack([r00, r01, r02], -1),
-                       torch.stack([r10, r11, r12], -1),
-                       torch.stack([r20, r21, r22], -1)], -2)
+    rot = torch.cat([torch.cat([r00, r01, r02], -1),
+                       torch.cat([r10, r11, r12], -1),
+                       torch.cat([r20, r21, r22], -1)], -2)
     return rot
 
 

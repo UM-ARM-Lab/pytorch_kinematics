@@ -6,10 +6,10 @@ import pytorch_kinematics.transforms as tf
 # has better RPY to quaternion transformation
 import transformations as tf2
 
-JOINT_TYPE_MAP = {'revolute': 'revolute',
+JOINT_TYPE_MAP = {'revolute':   'revolute',
                   'continuous': 'revolute',
-                  'prismatic': 'prismatic',
-                  'fixed': 'fixed'}
+                  'prismatic':  'prismatic',
+                  'fixed':      'fixed'}
 
 
 def _convert_transform(origin):
@@ -47,10 +47,13 @@ def _build_chain_recurse(root_frame, lmap, joints):
     children = []
     for j in joints:
         if j.parent == root_frame.link.name:
-
-            child_frame = frame.Frame(j.child + "_frame")
+            try:
+                limits = (j.limit.lower, j.limit.upper)
+            except AttributeError:
+                limits = None
+            child_frame = frame.Frame(j.child)
             child_frame.joint = frame.Joint(j.name, offset=_convert_transform(j.origin),
-                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=(j.limit.lower, j.limit.upper))
+                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits)
             link = lmap[j.child]
             child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
                                           visuals=[_convert_visual(link.visual)])
@@ -132,5 +135,5 @@ def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
         SerialChain object created from URDF.
     """
     urdf_chain = build_chain_from_urdf(data)
-    return chain.SerialChain(urdf_chain, end_link_name + "_frame",
-                             "" if root_link_name == "" else root_link_name + "_frame")
+    return chain.SerialChain(urdf_chain, end_link_name,
+                             "" if root_link_name == "" else root_link_name)

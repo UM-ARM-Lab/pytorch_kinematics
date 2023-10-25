@@ -11,7 +11,6 @@ number = 100
 
 def test_val_fk_perf():
     val = pk.build_serial_chain_from_mjcf(open('val.xml').read(), end_link_name='left_tool')
-    val.precompute_fk_info()
     val.get_frame_names()
     val = val.to(dtype=torch.float32, device='cuda')
 
@@ -35,7 +34,6 @@ def test_val_fk_perf():
 
 def test_kuka_fk_perf():
     kuka = pk.build_serial_chain_from_urdf(open('kuka_iiwa.urdf').read(), end_link_name='lbr_iiwa_link_7')
-    kuka.precompute_fk_info()
     kuka = kuka.to(dtype=torch.float32, device='cuda')
 
     th = torch.zeros(N, 7, dtype=torch.float32, device='cuda')

@@ -77,7 +77,7 @@ def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
         root_body = m.body(0)
     else:
         root_body = m.body(body)
-    root_frame = frame.Frame(root_body.name + "_frame",
+    root_frame = frame.Frame(root_body.name,
                              link=frame.Link(root_body.name,
                                              offset=tf.Transform3d(rot=root_body.quat, pos=root_body.pos)),
                              joint=frame.Joint())
