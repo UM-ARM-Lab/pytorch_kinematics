@@ -56,7 +56,7 @@ def _build_chain_recurse(m, parent_frame, parent_body):
             parent_frame.children = parent_frame.children + [site_frame,]
 
 
-def build_chain_from_mjcf(data, body: Union[None, str, int] = None, ee_links=None):
+def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
     """
     Build a Chain object from MJCF data.
 

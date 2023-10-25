@@ -1,0 +1,288 @@
+<mujoco model="val">
+    <compiler angle="radian" inertiafromgeom="true"/>
+    <option viscosity="1" timestep="0.001" solver="CG"/>
+    <default>
+        <geom solref="0.002 1" size="0.01"/>
+    </default>
+    <size njmax="500" nconmax="100"/>
+    <visual>
+        <scale framewidth="0.02" framelength="0.2"/>
+    </visual>
+    <worldbody>
+        <body pos="0 0 0" name="val_base">
+            <body pos="0 0 -0.26" euler="0 0 0" name="stand">
+                <geom type="box" name="stand" size="0.25 0.25 0.17" rgba="0.3 0.3 0.1 1"/>
+            </body>
+            <body name="pedestal" pos="0 0 0" euler="-1.5707 0 0">
+                <body pos="0 0 0.0891" euler="-1.5707 0 0" name="drive56">
+                    <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                    <body name="drive57" pos="0 0 -0.082642" euler="1.5707 1.5707 0">
+                        <joint name="joint56" type="hinge" pos="0 0 0" axis="0 -1 0" limited="true" range="-6.2 6.2"
+                               damping="200"
+                               frictionloss="0.01"/>
+                        <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                        <body name="torso" pos="0 0 -0.04085" quat="0.5 0.5 -0.5 0.5">
+                            <joint name="joint57" type="hinge" pos="0 0 0" axis="-1 0 0" limited="true" range="-1.5708 1.5708"
+                                   damping="100"
+                                   frictionloss="0.01"/>
+                            <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                            <body pos="-0.092094 0 0.44399" quat="0.5 -0.5 0.5 -0.5" name="drive1">
+                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                            </body>
+                            <body pos="0.167906 0 0.44399" quat="0.5 -0.5 -0.5 0.5" name="drive41">
+                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                            </body>
+                            <body name="drive42" pos="-0.174736 0 0.44399" quat="0.5 -0.5 -0.5 -0.5">
+                                <joint name="joint41" type="hinge" pos="0 0 0" axis="0 1 0" limited="true" range="-6.2 6.2"
+                                       damping="20"
+                                       frictionloss="1"/>
+                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                <body name="leftshoulder" pos="0 0 -0.07526" quat="0.707107 0 0 -0.707107">
+                                    <joint name="joint42" type="hinge" pos="0 0 0" axis="0 0 1" limited="true" range="-0.15 3.14159"
+                                           damping="8"
+                                           frictionloss="1"/>
+                                    <geom type="sphere" name="left_shoulder_bracket"
+                                          rgba="0.2 0.2 0.2 1"/>
+                                    <body pos="0 -0.1 0.07526" quat="0.707107 -0.707107 0 0" name="drive43">
+                                        <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                    </body>
+                                    <body name="lefttube_and_drive" pos="0 -0.215888 0.07526" quat="-0.707107 -0.707107 0 0">
+                                        <joint name="joint43" type="hinge" pos="0 0 0" axis="0 0 -1" limited="true"
+                                               range="-6.2 6.2" damping="8"
+                                               frictionloss="1"/>
+                                        <body quat="0.707107 0 0.707107 0" name="lefttube">
+                                            <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                        </body>
+                                        <body pos="0 0 0.0486304" quat="0.5 -0.5 -0.5 0.5" name="drive44">
+                                            <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                        </body>
+                                        <body name="leftforearm" pos="0.06758 0 0.0486304" quat="0 -0.707107 0 0.707107">
+                                            <joint name="joint44" type="hinge" pos="0 0 0" axis="0 0 1" limited="true"
+                                                   range="-4 1.0"
+                                                   damping="8" frictionloss="1"/>
+                                            <geom type="sphere" name="left_forearm_bracket"
+                                                  rgba="0.2 0.2 0.2 1"/>
+                                            <body pos="0 -0.17 0.05749" quat="0.707107 -0.707107 0 0" name="drive45">
+                                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                            </body>
+                                            <body name="drive46" pos="0 -0.237262 0.05749" quat="0.707107 0 0.707107 0">
+                                                <joint name="joint45" type="hinge" pos="0 0 0" axis="0 1 0" limited="true"
+                                                       range="-6.2 6.2"
+                                                       damping="0.4" frictionloss="0.01"/>
+                                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                                <body name="leftwrist" pos="0 0 -0.0566728">
+                                                    <joint name="joint46" type="hinge" pos="0 0 0" axis="0 0 -1" limited="true"
+                                                           range="-1.5708 1.5708" damping="0.04" frictionloss="0.1"/>
+                                                    <geom type="sphere" name="left_wrist"
+                                                          rgba="0.2 0.2 0.2 1"/>
+                                                    <body pos="0 -0.05 0.0566728" quat="0.707107 -0.707107 0 0"
+                                                          name="drive47">
+                                                        <geom type="sphere" name="drive47"
+                                                              rgba="0.2 0.2 0.2 1"/>
+                                                    </body>
+                                                    <body name="drive50" pos="0 -0.086 0.0566728" quat="0 0 0.707107 -0.707107">
+                                                        <joint name="joint47" type="hinge" pos="0 0 0" axis="0 0 -1"
+                                                               limited="true" range="-6.2 6.2"
+                                                               damping="0.08" frictionloss="0.1"/>
+                                                        <geom type="sphere" name="drive47_housing"
+                                                              rgba="0.2 0.2 0.2 1"/>
+                                                        <site name="left_tool" pos="0 0 0.181" size="0.001"/>
+                                                        <body name="left_d405_mount" pos="-0.0215 0 0.031" euler="1.5707 -1.5707 0">
+                                                            <geom type="sphere" name="left_d405_mount"
+                                                                  rgba="0.9 0.9 0.9 1"/>
+                                                            <body name="left_d405" euler="1.22 0 0" pos="0 0.01 0.03">
+                                                                <camera mode="fixed" name="left_hand"/>
+                                                                <geom name="left_d405" type="box" size="0.021 0.021 0.0115"/>
+                                                            </body>
+                                                            <!-- The default camera frame is weird, so we use this site instead -->
+                                                            <site name="left_hand_cam" euler="1.22 3.14159 3.14159" pos="0 0.01 0.03"
+                                                                  size="0.001"/>
+                                                        </body>
+                                                        <body name="leftgripper" pos="0 0.0135 0.068553"
+                                                              euler="1.15 -1.5707 0">
+                                                            <joint name="leftgripper" type="hinge" axis="0 0 1" limited="true"
+                                                                   range="-0.11 1"
+                                                                   damping="0.1" frictionloss="0.01"/>
+                                                            <geom type="sphere" friction="0.00001"
+                                                                  rgba="0.8 0.8 0.8 1"/>
+                                                            <body name="left_finger_pad" pos="0.052 0.1 0">
+                                                                <geom type="sphere" name="left_finger_pad"
+                                                                      rgba="0.6 0.4 0.2 1"/>
+                                                            </body>
+                                                        </body>
+                                                        <body name="leftgripper2" pos="0 -0.0135 0.068553"
+                                                              euler="1.99 1.5707 0">
+                                                            <joint name="leftgripper2" type="hinge" axis="0 0 1" limited="true"
+                                                                   range="-0.11 1"
+                                                                   damping="0.1" frictionloss="0.01"/>
+                                                            <geom type="sphere" name="leftgripper2"
+                                                                  friction="0.00001"
+                                                                  rgba="0.8 0.8 0.8 1"/>
+                                                            <body name="left_finger_pad2" pos="0.052 0.1 0">
+                                                                <geom type="sphere" name="left_finger_pad2"
+                                                                      rgba="0.6 0.4 0.2 1"/>
+                                                            </body>
+                                                        </body>
+                                                    </body>
+                                                </body>
+                                            </body>
+                                        </body>
+                                    </body>
+                                </body>
+                            </body>
+                            <body name="drive2" pos="0.250548 0 0.44399" quat="0.5 -0.5 0.5 0.5">
+                                <joint name="joint1" type="hinge" pos="0 0 0" axis="0 -1 0" limited="true" range="-6.2 6.2"
+                                       damping="20"
+                                       frictionloss="1"/>
+                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                <body name="rightshoulder" pos="0 0 -0.07526" quat="0.707107 0 0 0.707107">
+                                    <joint name="joint2" type="hinge" pos="0 0 0" axis="0 0 1" limited="true" range="-3.14159 0.15"
+                                           damping="8"
+                                           frictionloss="1"/>
+                                    <geom type="sphere" name="right_shoulder_bracket"
+                                          rgba="0.2 0.2 0.2 1"/>
+                                    <body pos="0 -0.1 0.07526" quat="0.707107 -0.707107 0 0" name="drive3">
+                                        <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                    </body>
+                                    <body name="righttube_and_drive" pos="0 -0.215888 0.07526" quat="0 0 -0.707107 0.707107">
+                                        <joint name="joint3" type="hinge" pos="0 0 0" axis="0 0 -1" limited="true"
+                                               range="-6.2 6.2" damping="8"
+                                               frictionloss="1"/>
+                                        <body quat="0.707107 0 0.707107 0" name="righttube">
+                                            <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                        </body>
+                                        <body pos="0 0 0.0486304" quat="0.5 -0.5 -0.5 0.5" name="drive4">
+                                            <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                        </body>
+                                        <body name="rightforearm" pos="0.06758 0 0.0486304" quat="0.707107 0 -0.707107 0">
+                                            <joint name="joint4" type="hinge" pos="0 0 0" axis="0 0 -1" limited="true"
+                                                   range="-4 1.0"
+                                                   damping="8" frictionloss="1"/>
+                                            <geom type="sphere" name="right_forearm_bracket"
+                                                  rgba="0.2 0.2 0.2 1"/>
+                                            <body pos="0 -0.17 0.05749" quat="0.707107 -0.707107 0 0" name="drive5">
+                                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                            </body>
+                                            <body name="drive6" pos="0 -0.237262 0.05749" quat="0.707107 0 -0.707107 0">
+                                                <joint name="joint5" type="hinge" pos="0 0 0" axis="0 1 0" limited="true"
+                                                       range="-6.2 6.2"
+                                                       damping="0.4" frictionloss="0.01"/>
+                                                <geom type="sphere" rgba="0.2 0.2 0.2 1"/>
+                                                <body name="rightwrist" pos="0 0 -0.0566728">
+                                                    <joint name="joint6" type="hinge" pos="0 0 0" axis="0 0 -1" limited="true"
+                                                           range="-1.5708 1.5708" damping="0.04" frictionloss="0.1"/>
+                                                    <geom type="sphere" name="rightwrist"
+                                                          rgba="0.2 0.2 0.2 1"/>
+                                                    <body pos="0 -0.05 0.0566728" quat="0.707107 -0.707107 0 0"
+                                                          name="drive7">
+                                                        <geom type="sphere" name="drive7"
+                                                              rgba="0.2 0.2 0.2 1"/>
+                                                    </body>
+                                                    <body name="drive10" pos="0 -0.086 0.0566728" quat="0.707107 0.707107 0 0">
+                                                        <joint name="joint7" type="hinge" pos="0 0 0" axis="0 0 -1"
+                                                               limited="true" range="-6.2 6.2"
+                                                               damping=".08" frictionloss="0.1"/>
+                                                        <geom type="sphere" name="drive7_housing"
+                                                              rgba="0.2 0.2 0.2 1"/>
+                                                        <site name="right_tool" pos="0 0 0.181" size="0.001"/>
+                                                        <body name="right_d405_mount" pos="-0.0215 0 0.031" euler="1.5707 -1.5707 0">
+                                                            <geom type="sphere" name="right_d405_mount"
+                                                                  rgba="0.9 0.9 0.9 1"/>
+                                                            <body name="right_d405" euler="1.22 0 0" pos="0 0.01 0.03">
+                                                                <geom name="right_d405" type="box" size="0.021 0.021 0.0115"/>
+                                                                <camera mode="fixed" name="right_hand"/>
+                                                            </body>
+                                                            <!-- The default camera frame is weird, so we use this site instead -->
+                                                            <site name="right_hand_cam" euler="-1.93 0 3.1415" pos="0.01 0 0.03"
+                                                                  size="0.001"/>
+                                                        </body>
+
+                                                        <body name="rightgripper" pos="0 0.0135 0.068553"
+                                                              euler="1.15 -1.5707 0">
+                                                            <joint name="rightgripper" type="hinge" axis="0 0 1" limited="true"
+                                                                   range="-0.11 1"
+                                                                   damping="0.1" frictionloss="0.01"/>
+                                                            <geom type="sphere" name="rightgripper"
+                                                                  friction="0.00001"
+                                                                  rgba="0.9 0.9 0.9 1"/>
+                                                            <body name="right_finger_pad" pos="0.052 0.1 0">
+                                                                <geom type="sphere" name="right_finger_pad"
+                                                                      rgba="0.6 0.4 0.2 1"/>
+                                                            </body>
+                                                        </body>
+                                                        <body name="rightgripper2" pos="0 -0.0135 0.068553"
+                                                              euler="1.99 1.5707 0">
+                                                            <joint name="rightgripper2" type="hinge" axis="0 0 1" limited="true"
+                                                                   range="-0.11 1"
+                                                                   damping="0.1" frictionloss="0.01"/>
+                                                            <geom type="sphere" name="rightgripper2"
+                                                                  friction="0.00001"
+                                                                  rgba="0.9 0.9 0.9 1"/>
+                                                            <body name="right_finger_pad2" pos="0.052 0.1 0">
+                                                                <geom type="sphere" name="right_finger_pad2"
+                                                                      rgba="0.6 0.4 0.2 1"/>
+                                                            </body>
+                                                        </body>
+                                                    </body>
+                                                </body>
+                                            </body>
+                                        </body>
+                                    </body>
+                                </body>
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+    <actuator>
+        <!--  0 -->
+        <intvelocity name="joint56_vel" joint="joint56" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-6.2 6.2" kp="5000"
+                     forcelimited="true" forcerange="-50 50"/>
+        <intvelocity name="joint57_vel" joint="joint57" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-1.5708 1.5708" kp="20000"
+                     forcelimited="true" forcerange="-55 55"/>
+
+        <!--  2 -->
+        <intvelocity name="joint41_vel" joint="joint41" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-6.2 6.2" kp="10000"
+                     forcelimited="true" forcerange="-15 15"/>
+        <intvelocity name="joint42_vel" joint="joint42" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-0.15 3.14159" kp="5000"
+                     forcelimited="true" forcerange="-15 15"/>
+        <intvelocity name="joint43_vel" joint="joint43" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-6.2 6.2" kp="5000"
+                     forcelimited="true" forcerange="-10 10"/>
+        <intvelocity name="joint44_vel" joint="joint44" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-4 1.0" kp="1000"
+                     forcelimited="true" forcerange="-10 10"/>
+        <!--  6 -->
+        <intvelocity name="joint45_vel" joint="joint45" ctrllimited="true" ctrlrange="-2 2" actrange="-6.2 6.2" kp="100" forcelimited="true"
+                     forcerange="-8 8"/>
+        <intvelocity name="joint46_vel" joint="joint46" ctrllimited="true" ctrlrange="-2 2" actrange="-1.5708 1.5708" kp="500"
+                     forcelimited="true" forcerange="-4 4"/>
+        <intvelocity name="joint47_vel" joint="joint47" ctrllimited="true" ctrlrange="-3.1 3.1" actrange="-6.2 6.2" kp="50"
+                     forcelimited="true" forcerange="-3 3"/>
+        <intvelocity name="leftgripper_vel" joint="leftgripper" ctrllimited="true" ctrlrange="-0.5 0.5" actrange="-0.11 1" kp="25"
+                     forcelimited="true" forcerange="-1 1"/>
+
+        <!--  10 -->
+        <intvelocity name="joint1_vel" joint="joint1" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-6.2 6.2" kp="10000"
+                     forcelimited="true" forcerange="-15 15"/>
+        <intvelocity name="joint2_vel" joint="joint2" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-3.14159 0.15" kp="5000"
+                     forcelimited="true" forcerange="-15 15"/>
+        <intvelocity name="joint3_vel" joint="joint3" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-6.2 6.2" kp="5000"
+                     forcelimited="true" forcerange="-10 10"/>
+        <intvelocity name="joint4_vel" joint="joint4" ctrllimited="true" ctrlrange="-0.45 0.45" actrange="-4 1.0" kp="1000"
+                     forcelimited="true" forcerange="-8 8"/>
+        <!--  14 -->
+        <intvelocity name="joint5_vel" joint="joint5" ctrllimited="true" ctrlrange="-2 2" actrange="-6.2 6.2" kp="100" forcelimited="true"
+                     forcerange="-8 8"/>
+        <intvelocity name="joint6_vel" joint="joint6" ctrllimited="true" ctrlrange="-2 2" actrange="-1.5708 1.5708" kp="500"
+                     forcelimited="true" forcerange="-4 4"/>
+        <intvelocity name="joint7_vel" joint="joint7" ctrllimited="true" ctrlrange="-3.1 3.1" actrange="-6.2 6.2" kp="50"
+                     forcelimited="true" forcerange="-3 3"/>
+        <intvelocity name="rightgripper_vel" joint="rightgripper" ctrllimited="true" ctrlrange="-0.5 0.5" actrange="-0.11 1" kp="25"
+                     forcelimited="true" forcerange="-1 1"/>
+    </actuator>
+    <equality>
+        <joint name="left_mimic" joint1="leftgripper" joint2="leftgripper2" solref="0.01 1"/>
+        <joint name="right_mimic" joint1="rightgripper" joint2="rightgripper2" solref="0.01 1"/>
+    </equality>
+</mujoco>

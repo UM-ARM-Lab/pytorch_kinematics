@@ -295,8 +295,8 @@ class Chain:
         return self._forward_kinematics(self._root, th_dict, world)
 
     @lru_cache
-    def get_link_indices(self, *tool_names):
-        return torch.tensor([self.frame_to_idx[n + '_frame'] for n in tool_names], dtype=torch.long,
+    def get_frame_indices(self, *frame_names):
+        return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long,
                             device=self.device)
 
     def forward_kinematics_fast(self, th, link_indices):
@@ -414,7 +414,6 @@ class Chain:
             force_vector = (total_mass * gravity)[None]
             torque_world_frame = torch.cross(lever_vector, force_vector)
             torque_joint_frame = transform_direction(torch.linalg.pinv(joint_pose), torque_world_frame)
-            # print(torque_joint_frame)
             torques_dict[joint.name] = torque_joint_frame
 
         torques = [torques_dict[n] for n in self.get_joint_parameter_names(True)]

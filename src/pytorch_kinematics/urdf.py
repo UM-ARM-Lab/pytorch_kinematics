@@ -105,7 +105,7 @@ def build_chain_from_urdf(data):
         if has_root[i]:
             root_link = lmap[joints[i].parent]
             break
-    root_frame = frame.Frame(root_link.name + "_frame")
+    root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint()
     root_frame.link = frame.Link(root_link.name, _convert_transform(root_link.origin),
                                  [_convert_visual(root_link.visual)])
