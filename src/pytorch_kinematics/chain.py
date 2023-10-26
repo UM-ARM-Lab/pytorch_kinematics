@@ -38,6 +38,16 @@ def ensure_2d_tensor(th, dtype, device):
     return th, N
 
 
+def get_dict_elem_shape(th_dict):
+    elem = th_dict[list(th_dict.keys())[0]]
+    if isinstance(elem, np.ndarray):
+        return elem.shape
+    elif isinstance(elem, torch.Tensor):
+        return elem.shape
+    else:
+        return ()
+
+
 class Chain:
     """
     Robot model that may be constructed from different descriptions via their respective parsers.
@@ -174,6 +184,7 @@ class Chain:
         joints = self._get_joints(self._root, exclude_fixed=exclude_fixed)
         return joints
 
+    @lru_cache()
     def get_joint_parameter_names(self, exclude_fixed=True):
         names = []
         for f in self.get_joints(exclude_fixed=exclude_fixed):
@@ -270,11 +281,16 @@ class Chain:
 
     def forward_kinematics(self, th, frame_indices: Optional = None):
         """
-        Instead of a tree, we can use a flat data structure with indexes to represent the parent
-        then instead of recursion we can just iterate in order and use parent pointers. This
-        reduces function call overhead and moves some of the indexing work to the constructor.
+        Compute forward kinematics.
 
-        use `get_frame_indices` to get the indices for the frames you want to compute the pose for.
+        Args:
+            th: A dict, list, numpy array, or torch tensor of ALL joints values. Possibly batched.
+               the fastest thing to use is a torch tensor, all other types get converted to that.
+               If any joint values are missing, an exception will be thrown.
+            frame_indices: A list of frame indices to compute forward kinematics for. If None, all frames are computed.
+
+        Returns:
+            A dict of frame names and their corresponding Transform3d objects.
         """
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
@@ -343,18 +359,28 @@ class Chain:
         return frame_names_and_transform3ds
 
     def ensure_tensor(self, th):
+        """
+        Converts a number of possible types into a tensor. The order of the tensor is determined by the order
+        of self.get_joint_parameter_names().
+        """
         if isinstance(th, np.ndarray):
             th = torch.tensor(th, device=self.device, dtype=self.dtype)
-        if isinstance(th, list):
+        elif isinstance(th, list):
             th = torch.tensor(th, device=self.device, dtype=self.dtype)
-        if isinstance(th, dict):
+        elif isinstance(th, dict):
             # convert dict to a flat, complete, tensor of all joints values. Missing joints are filled with zeros.
             th_dict = th
-            th = torch.zeros(self.n_joints, device=self.device, dtype=self.dtype)
+            elem_shape = get_dict_elem_shape(th_dict)
+            th = torch.ones([*elem_shape, self.n_joints], device=self.device, dtype=self.dtype) * torch.nan
             joint_names = self.get_joint_parameter_names()
             for joint_name, joint_position in th_dict.items():
                 jnt_idx = joint_names.index(joint_name)
-                th[jnt_idx] = joint_position
+                th[..., jnt_idx] = joint_position
+            if torch.any(torch.isnan(th)):
+                msg = "Missing values for the following joints:\n"
+                for joint_name, th_i in zip(self.get_joint_parameter_names(), th):
+                    msg += joint_name + "\n"
+                raise ValueError(msg)
         return th
 
     def get_all_frame_indices(self):
@@ -454,6 +480,7 @@ class SerialChain(Chain):
         return jacobian.calc_jacobian(self, th, tool=locations)
 
     def forward_kinematics(self, th, end_only: bool = True):
+        """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
         else:

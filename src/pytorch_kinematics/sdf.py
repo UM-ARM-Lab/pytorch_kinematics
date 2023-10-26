@@ -100,3 +100,9 @@ def build_chain_from_sdf(data):
                                  _convert_visuals(root_link.visuals))
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
     return chain.Chain(root_frame)
+
+
+def build_serial_chain_from_sdf(data, end_link_name, root_link_name=""):
+    mjcf_chain = build_chain_from_sdf(data)
+    serial_chain = chain.SerialChain(mjcf_chain, end_link_name, "" if root_link_name == "" else root_link_name)
+    return serial_chain

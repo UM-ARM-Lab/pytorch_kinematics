@@ -36,7 +36,16 @@ def test_fk_mjcf():
     chain = chain.to(dtype=torch.float64)
     print(chain)
     print(chain.get_joint_parameter_names())
-    th = {'hip_1': 1.0, 'ankle_1': 1}
+    th = {
+        'hip_1':   1.0,
+        'ankle_1': 1,
+        'hip_2':   0.0,
+        'ankle_2': 0.0,
+        'hip_3':   0.0,
+        'ankle_3': 0.0,
+        'hip_4':   0.0,
+        'ankle_4': 0.0,
+    }
     ret = chain.forward_kinematics(th)
     tg = ret['aux_1']
     pos, rot = quat_pos_from_transform3d(tg)
@@ -151,14 +160,24 @@ def test_fk_simple_arm():
     chain = chain.to(dtype=torch.float64)
     # print(chain)
     # print(chain.get_joint_parameter_names())
-    ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
+    ret = chain.forward_kinematics({
+        'arm_shoulder_pan_joint': 0.,
+        'arm_elbow_pan_joint':    math.pi / 2.0,
+        'arm_wrist_lift_joint':   -0.5,
+        'arm_wrist_roll_joint':   0.,
+    })
     tg = ret['arm_wrist_roll']
     pos, rot = quat_pos_from_transform3d(tg)
     assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=torch.float64))
     assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=torch.float64))
 
     N = 100
-    ret = chain.forward_kinematics({'arm_elbow_pan_joint': torch.rand(N, 1), 'arm_wrist_lift_joint': torch.rand(N, 1)})
+    ret = chain.forward_kinematics({
+        'arm_shoulder_pan_joint': torch.rand(N),
+        'arm_elbow_pan_joint':    torch.rand(N),
+        'arm_wrist_lift_joint':   torch.rand(N),
+        'arm_wrist_roll_joint':   torch.rand(N),
+    })
     tg = ret['arm_wrist_roll']
     assert list(tg.get_matrix().shape) == [N, 4, 4]
 
@@ -176,7 +195,12 @@ def test_cuda():
         chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
         chain = chain.to(dtype=dtype, device=d)
 
-        ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
+        ret = chain.forward_kinematics({
+            'arm_shoulder_pan_joint': 0,
+            'arm_elbow_pan_joint': math.pi / 2.0,
+            'arm_wrist_lift_joint': -0.5,
+            'arm_wrist_roll_joint': 0,
+        })
         tg = ret['arm_wrist_roll']
         pos, rot = quat_pos_from_transform3d(tg)
         assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
