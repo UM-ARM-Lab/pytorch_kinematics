@@ -450,6 +450,24 @@ def quaternion_apply(quaternion, point):
     return out[..., 1:]
 
 
+def tensor_axis_and_d_to_pris_matrix(axis, d):
+    """
+    Works with any number of batch dimensions.
+
+    Args:
+        axis: [..., 3]
+        d: [ ...]
+
+    Returns: [..., 4, 4]
+
+    """
+    batch_axes = axis.shape[:-1]
+    mat44 = torch.eye(4).to(axis).repeat(*batch_axes, 1, 1)
+    pos = axis * d[..., None]
+    mat44[..., :3, 3] = pos
+    return mat44
+
+
 def tensor_axis_and_angle_to_matrix(axis, theta):
     """
     Works with any number of batch dimensions.

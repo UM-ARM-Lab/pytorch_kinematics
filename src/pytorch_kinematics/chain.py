@@ -68,6 +68,7 @@ class Chain:
         self.is_fixed = []
         self.link_offsets = []
         self.joint_offsets = []
+        self.joint_types = []
         queue = []
         queue.insert(-1, (self._root, -1, 0))  # the root has no parent so we use -1.
         idx = 0
@@ -101,6 +102,8 @@ class Chain:
                 jnt_idx = self.get_joint_parameter_names().index(root.joint.name)
                 self.axes[jnt_idx] = root.joint.axis
                 self.joint_indices.append(jnt_idx)
+
+            self.joint_types.append(root.joint.joint_type)
 
             for child in root.children:
                 queue.append((child, idx, depth + 1))
@@ -280,6 +283,7 @@ class Chain:
 
         axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
 
+        # TODO: reimplement in CPP
         # frame_transforms = zpk_cpp.fk(
         #     frame_indices,
         #     axes_expanded,
@@ -291,12 +295,17 @@ class Chain:
         #     self.link_offsets
         # )
 
-        import rerun as rr
         from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
+        from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_d_to_pris_matrix
         frame_transforms = {}
         b = th.size(0)
         # compute all joint transforms at once first
-        jnt_transform = tensor_axis_and_angle_to_matrix(axes_expanded, th)
+        # in order to handle multiple joint types without branching, we create all possible transforms
+        # for all joint types and then select the appropriate one for each joint.
+        rev_jnt_transform = tensor_axis_and_angle_to_matrix(axes_expanded, th)
+        pris_jnt_transform = tensor_axis_and_d_to_pris_matrix(axes_expanded, th)
+        # jnt_transform = torch.where(self.joint_types, rev_jnt_transform, pris_jnt_transform)
+        jnt_transform = rev_jnt_transform
 
         for frame_idx in frame_indices:
             frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)

@@ -24,7 +24,7 @@ def test_correctness():
     assert torch.allclose(J, J_expected, atol=1e-7)
 
     chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
-    chain = pk.SerialChain(chain, "arm_wrist_roll_frame")
+    chain = pk.SerialChain(chain, "arm_wrist_roll")
     th = torch.tensor([0.8, 0.2, -0.5, -0.3])
     J = chain.jacobian(th)
     torch.allclose(J, torch.tensor([[[0., -1.51017878, -0.46280904, 0.],
