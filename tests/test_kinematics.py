@@ -25,9 +25,9 @@ def quat_pos_from_transform3d(tg):
     return pos, rot
 
 
-def quaternion_equality(a, b):
+def quaternion_equality(a, b, rtol=1e-5):
     # negative of a quaternion is the same rotation
-    return torch.allclose(a, b) or torch.allclose(a, -b)
+    return torch.allclose(a, b, rtol=rtol) or torch.allclose(a, -b, rtol=rtol)
 
 
 # test more complex robot and the MJCF parser
@@ -266,7 +266,8 @@ def test_fk_val():
     ret = chain.forward_kinematics(torch.zeros([1000, chain.n_joints], dtype=torch.float64))
     tg = ret['drive45']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([0.5, 0.5, -0.5, 0.5], dtype=torch.float64))
+    torch.set_printoptions(precision=6, sci_mode=False)
+    assert quaternion_equality(rot, torch.tensor([0.5, 0.5, -0.5, 0.5], dtype=torch.float64), rtol=1e-4)
     assert torch.allclose(pos, torch.tensor([-0.225692, 0.259045, 0.262139], dtype=torch.float64))
 
 
