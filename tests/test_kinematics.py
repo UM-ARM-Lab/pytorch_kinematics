@@ -260,7 +260,19 @@ def test_mjcf_slide_joint_parsing():
     print(chain.get_frame_names())
 
 
+def test_fk_val():
+    chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read())
+    chain = chain.to(dtype=torch.float64)
+    ret = chain.forward_kinematics(torch.zeros([1000, chain.n_joints], dtype=torch.float64))
+    tg = ret['drive45']
+    pos, rot = quat_pos_from_transform3d(tg)
+    assert quaternion_equality(rot, torch.tensor([0.5, 0.5, -0.5, 0.5], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([-0.225692, 0.259045, 0.262139], dtype=torch.float64))
+
+
 if __name__ == "__main__":
+    test_fk_val()
+    test_sdf_serial_chain()
     test_urdf_serial()
     test_fkik()
     test_fk_simple_arm()
