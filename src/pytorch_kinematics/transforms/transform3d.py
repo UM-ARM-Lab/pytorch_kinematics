@@ -167,6 +167,7 @@ class Transform3d:
                 a quaternion of shape (4,) or of shape (minibatch, 4), where
                 minibatch should match that of matrix if that is also passed in.
                 The rotation overrides the rotation given in the matrix argument, if any.
+                Quaternions must be in wxyz order.
             pos: A tensor of shape (3,) or of shape (minibatch, 3) representing the position
                 offsets of the transforms, where minibatch should match that of matrix if
                 that is also passed in. The position overrides the position given in the

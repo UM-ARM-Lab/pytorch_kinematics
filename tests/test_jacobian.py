@@ -70,7 +70,7 @@ def test_jacobian_at_different_loc_than_ee():
 
 def test_jacobian_y_joint_axis():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
-    th = torch.tensor([0])
+    th = torch.tensor([0.])
     J = chain.jacobian(th)
     J_c3 = torch.tensor([[[0.], [0.], [-0.3], [0.], [1.], [0.]]])
     assert torch.allclose(J, J_c3, atol=1e-7)
@@ -119,19 +119,23 @@ def test_gradient():
 def test_jacobian_prismatic():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "prismatic_robot.urdf")).read(), "link4")
     th = torch.zeros(3)
-    m = chain.forward_kinematics(th).get_matrix()
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0, 0, 1.]))
     th = torch.tensor([0, 0.1, 0])
-    m = chain.forward_kinematics(th).get_matrix()
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0, -0.1, 1.]))
     th = torch.tensor([0.1, 0.1, 0])
-    m = chain.forward_kinematics(th).get_matrix()
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0, -0.1, 1.1]))
     th = torch.tensor([0.1, 0.1, 0.1])
-    m = chain.forward_kinematics(th).get_matrix()
+    tg = chain.forward_kinematics(th)
+    m = tg.get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0.1, -0.1, 1.1]))
 

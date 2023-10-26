@@ -450,7 +450,7 @@ def quaternion_apply(quaternion, point):
     return out[..., 1:]
 
 
-def axis_and_angle_to_matrix(axis, theta):
+def tensor_axis_and_angle_to_matrix(axis, theta):
     """
     Works with any number of batch dimensions.
 
@@ -458,9 +458,33 @@ def axis_and_angle_to_matrix(axis, theta):
         axis: [..., 3]
         theta: [ ...]
 
-    Returns: [..., 3, 3]
+    Returns: [..., 4, 4]
 
     """
+    # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
+    c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
+    one_minus_c = 1 - c
+    s = torch.sin(theta)
+    kx, ky, kz = torch.unbind(axis, -1)
+    r00 = c + kx * kx * one_minus_c
+    r01 = kx * ky * one_minus_c - kz * s
+    r02 = kx * kz * one_minus_c + ky * s
+    r10 = ky * kx * one_minus_c + kz * s
+    r11 = c + ky * ky * one_minus_c
+    r12 = ky * kz * one_minus_c - kx * s
+    r20 = kz * kx * one_minus_c - ky * s
+    r21 = kz * ky * one_minus_c + kx * s
+    r22 = c + kz * kz * one_minus_c
+    rot = torch.stack([torch.stack([r00, r01, r02], -1),
+                       torch.stack([r10, r11, r12], -1),
+                       torch.stack([r20, r21, r22], -1)], -2)
+    batch_shape = axis.shape[:-1]
+    mat44 = torch.eye(4, device=axis.device, dtype=axis.dtype).repeat(*batch_shape, 1, 1)
+    mat44[..., :3, :3] = rot
+    return mat44
+
+
+def axis_and_angle_to_matrix(axis, theta):
     # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
     c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
     one_minus_c = 1 - c

@@ -50,37 +50,32 @@ fk(torch::Tensor link_indices, torch::Tensor axes, torch::Tensor th,
   std::vector<torch::Tensor> link_transforms;
 
   auto b = th.size(0);
+  // NOTE: assumes revolute joint!
   auto const jnt_transform = axis_and_angle_to_matrix(axes, th);
 
   for (auto i{0}; i < link_indices.size(0); ++i) {
     auto idx = link_indices.index({i}).item().to<int>();
     auto link_transform = torch::eye(4).to(th).unsqueeze(0).repeat({b, 1, 1});
-    std::vector<torch::Tensor> tip_to_base;
 
     while (idx >= 0) {
       auto const joint_offset_i = joint_offsets[idx];
       if (joint_offset_i) {
-        tip_to_base.emplace_back(*joint_offset_i);
         link_transform = torch::matmul(*joint_offset_i, link_transform);
       }
 
-      if (!is_fixed[idx]) { // NOTE: assumes revolute joint
+      if (!is_fixed[idx]) {
         auto const jnt_idx = joint_indices[idx];
         auto const jnt_transform_i = jnt_transform.index({Slice(), jnt_idx});
-        tip_to_base.emplace_back(jnt_transform_i);
         link_transform = torch::matmul(jnt_transform_i, link_transform);
       }
 
       auto const link_offset_i = link_offsets[idx];
       if (link_offset_i) {
-        tip_to_base.emplace_back(*link_offset_i);
         link_transform = torch::matmul(*link_offset_i, link_transform);
       }
 
       idx = parent_indices[idx];
     }
-
-    // go through tip_to_base in reverse and build up the intermediate transforms
 
      link_transforms.emplace_back(link_transform);
   }

@@ -10,6 +10,23 @@ from pytorch_kinematics import jacobian
 from pytorch_kinematics.frame import Frame, Link
 
 
+def get_th_size(th):
+    """
+
+    Args:
+        th: A dict, list, numpy array, or torch tensor of joints values. Possibly batched
+
+    Returns: The number of joints in the input
+
+    """
+    if isinstance(th, torch.Tensor) or isinstance(th, np.ndarray):
+        return th.shape[-1]
+    elif isinstance(th, list) or isinstance(th, dict):
+        return len(th)
+    else:
+        raise NotImplementedError(f"Unsupported type {type(th)}")
+
+
 def ensure_2d_tensor(th, dtype, device):
     if not torch.is_tensor(th):
         th = torch.tensor(th, dtype=dtype, device=device)
@@ -19,12 +36,6 @@ def ensure_2d_tensor(th, dtype, device):
     else:
         N = th.shape[0]
     return th, N
-
-
-def transform_direction(pose, v):
-    v_ = torch.cat([v, torch.zeros_like(v[..., 0:1])], dim=-1).unsqueeze(-1)
-    new_v = (pose @ v_)[..., :3, 0]
-    return new_v
 
 
 class Chain:
@@ -45,7 +56,12 @@ class Chain:
         self.low = torch.tensor(low, device=self.device, dtype=self.dtype)
         self.high = torch.tensor(high, device=self.device, dtype=self.dtype)
 
-        self.parent_indices = []
+        # As we traverse the kinematic tree, each frame is assigned an index.
+        # We use this index to build a flat representation of the tree.
+        # parent_indices and joint_indices all use this indexing scheme.
+        # The root frame will be index 0 and the first frame of the root frame's children will be index 1,
+        # then the child of that frame will be index 2, etc. In other words, it's a depth-first ordering.
+        self.parents_indices = []  # list of indices from 0 (root) to the given frame
         self.joint_indices = []
         self.n_joints = len(self.get_joint_parameter_names())
         self.axes = torch.zeros([self.n_joints, 3], dtype=self.dtype, device=self.device)
@@ -53,7 +69,7 @@ class Chain:
         self.link_offsets = []
         self.joint_offsets = []
         queue = []
-        queue.insert(-1, (self._root, -1, 0))
+        queue.insert(-1, (self._root, -1, 0))  # the root has no parent so we use -1.
         idx = 0
         self.frame_to_idx = {}
         self.idx_to_frame = {}
@@ -62,7 +78,11 @@ class Chain:
             name_strip = root.name.strip("\n")
             self.frame_to_idx[name_strip] = idx
             self.idx_to_frame[idx] = name_strip
-            self.parent_indices.append(parent_idx)
+            if parent_idx == -1:
+                self.parents_indices.append([])
+            else:
+                self.parents_indices.append(self.parents_indices[parent_idx] + [parent_idx])
+
             self.is_fixed.append(root.joint.joint_type == 'fixed')
 
             if root.link.offset is None:
@@ -87,6 +107,7 @@ class Chain:
 
             idx += 1
         self.joint_indices = torch.tensor(self.joint_indices)
+        self.parents_indices = [torch.tensor(p, dtype=torch.long, device=self.device) for p in self.parents_indices]
 
     def to(self, dtype=None, device=None):
         if dtype is not None:
@@ -96,6 +117,7 @@ class Chain:
         self._root = self._root.to(dtype=self.dtype, device=self.device)
 
         self.identity = self.identity.to(device=self.device, dtype=self.dtype)
+        self.parents_indices = [p.to(dtype=torch.long, device=self.device) for p in self.parents_indices]
         self.axes = self.axes.to(dtype=self.dtype, device=self.device)
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
@@ -251,30 +273,59 @@ class Chain:
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
 
-        # ensure th is a tensor or a dict
         th = self.ensure_tensor(th)
-
         th = torch.atleast_2d(th)
 
         b, n = th.shape
 
         axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
 
-        tool_transforms = zpk_cpp.fk(
-            frame_indices,
-            axes_expanded,
-            th,
-            self.parent_indices,
-            self.is_fixed,
-            self.joint_indices,
-            self.joint_offsets,
-            self.link_offsets
-        )
+        # frame_transforms = zpk_cpp.fk(
+        #     frame_indices,
+        #     axes_expanded,
+        #     th,
+        #     self.parent_indices,
+        #     self.is_fixed,
+        #     self.joint_indices,
+        #     self.joint_offsets,
+        #     self.link_offsets
+        # )
 
-        tool_transforms_dict = {self.idx_to_frame[frame_idx.item()]: tf.Transform3d(matrix=transform) for frame_idx, transform in
-                                zip(frame_indices, tool_transforms)}
+        import rerun as rr
+        from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
+        frame_transforms = {}
+        b = th.size(0)
+        # compute all joint transforms at once first
+        jnt_transform = tensor_axis_and_angle_to_matrix(axes_expanded, th)
 
-        return tool_transforms_dict
+        for frame_idx in frame_indices:
+            frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
+
+            # iterate down the list and compose the transform
+            chain_indices = torch.cat((self.parents_indices[frame_idx], frame_idx[None]))
+            for chain_idx in chain_indices:
+                if chain_idx.item() in frame_transforms and False:  # DEBUGGING
+                    frame_transform = frame_transforms[chain_idx.item()]
+                else:
+                    link_offset_i = self.link_offsets[chain_idx]
+                    if link_offset_i is not None:
+                        frame_transform = frame_transform @ link_offset_i
+
+                    joint_offset_i = self.joint_offsets[chain_idx]
+                    if joint_offset_i is not None:
+                        frame_transform = frame_transform @ joint_offset_i
+
+                    if not self.is_fixed[chain_idx]:
+                        jnt_idx = self.joint_indices[chain_idx]
+                        jnt_transform_i = jnt_transform[:, jnt_idx]
+                        frame_transform = frame_transform @ jnt_transform_i
+
+            frame_transforms[frame_idx.item()] = frame_transform
+
+        frame_names_and_transform3ds = {self.idx_to_frame[frame_idx]: tf.Transform3d(matrix=transform) for
+                                        frame_idx, transform in frame_transforms.items()}
+
+        return frame_names_and_transform3ds
 
     def ensure_tensor(self, th):
         if isinstance(th, np.ndarray):
@@ -353,40 +404,6 @@ class Chain:
     def get_joints_and_child_links(self):
         yield from Chain._get_joints_and_child_links(self._root)
 
-    def expected_torques(self, th):
-        gravity = torch.tensor([0, 0, -9.8], dtype=self.dtype, device=self.device)
-        frame_indices = self.get_all_frame_indices()
-        poses_dict = self.forward_kinematics(th, frame_indices)
-        torques_dict = {}
-        for joint, child_links in self.get_joints_and_child_links():
-            # NOTE: assumes joint has not offset from joint_link
-            joint_link = child_links[0]
-            # print(joint.name, [l.name for l in child_links])
-            child_masses = []
-            child_positions = []
-            for link in child_links:
-                child_masses.append(link.mass)
-                child_positions.append(poses_dict[link.name].get_matrix()[:, :3, 3])
-            child_masses = torch.tensor(child_masses, dtype=self.dtype, device=self.device)
-            child_positions = torch.stack(child_positions, dim=-1)
-            avg_position = (child_masses[None, None] * child_positions).sum(dim=-1)  # add batch_dims
-            total_mass = torch.sum(child_masses)
-            joint_pose = poses_dict[joint_link.name].get_matrix()
-            joint_position = joint_pose[:, :3, 3]
-            axis_joint_frame = joint.axis[None]  # add batch dims
-            axis_world_frame = transform_direction(joint_pose, axis_joint_frame)
-            # print(avg_position, total_mass, axis_world_frame, joint_position)
-            joint_to_avg_pos = avg_position - joint_position
-            # NOTE: A@B.T is the same as batched dot product
-            lever_vector = joint_to_avg_pos - axis_world_frame @ joint_to_avg_pos.T * axis_world_frame
-            force_vector = (total_mass * gravity)[None]
-            torque_world_frame = torch.cross(lever_vector, force_vector)
-            torque_joint_frame = transform_direction(torch.linalg.pinv(joint_pose), torque_world_frame)
-            torques_dict[joint.name] = torque_joint_frame
-
-        torques = [torques_dict[n] for n in self.get_joint_parameter_names(True)]
-        return torques
-
 
 class SerialChain(Chain):
     """
@@ -429,9 +446,8 @@ class SerialChain(Chain):
             # to return all frames.
             frame_indices = None
 
-        if len(th) < self.n_joints:
-            # if it's not the same length as the number of joints, then we assume it's a list of joints from the root
-            # up until the end effector.
+        if get_th_size(th) < self.n_joints:
+            # if th is only a partial list of joints, assume it's a list of joints for only the serial chain.
             partial_th = th
             nonfixed_serial_frames = list(filter(lambda f: f.joint.joint_type != 'fixed', self._serial_frames))
             if len(nonfixed_serial_frames) != len(partial_th):
@@ -444,7 +460,34 @@ class SerialChain(Chain):
                     th[jnt_idx] = partial_th_i
 
         mat = super().forward_kinematics(th, frame_indices)
+
         if end_only:
             return mat[self._serial_frames[-1].name]
         else:
             return mat
+
+    def forward_kinematics_slow(self, th, world=None, end_only=True):
+        if world is None:
+            world = tf.Transform3d()
+        if world.dtype != self.dtype or world.device != self.device:
+            world = world.to(dtype=self.dtype, device=self.device, copy=True)
+        th, N = ensure_2d_tensor(th, self.dtype, self.device)
+        zeros = torch.zeros([N, 1], dtype=world.dtype, device=world.device)
+
+        theta_idx = 0
+        link_transforms = {}
+        trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
+        for f in self._serial_frames:
+            if f.link.offset is not None:
+                trans = trans.compose(f.link.offset)
+
+            if f.joint.joint_type == "fixed":  # If fixed
+                trans = trans.compose(f.get_transform(zeros))
+            else:
+                joint_transform = f.get_transform(th[:, theta_idx].view(N, 1))
+                trans = trans.compose(joint_transform)
+                theta_idx += 1
+
+            link_transforms[f.link.name] = trans
+
+        return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms

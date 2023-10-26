@@ -22,8 +22,7 @@ class Visual(object):
 
 
 class Link(object):
-    def __init__(self, name=None, offset=None, mass=0.0, visuals=()):
-        self.mass = mass
+    def __init__(self, name=None, offset=None, visuals=()):
         if offset is None:
             self.offset = None
         else:
