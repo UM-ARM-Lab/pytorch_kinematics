@@ -182,6 +182,15 @@ def test_fk_simple_arm():
     assert list(tg.get_matrix().shape) == [N, 4, 4]
 
 
+def test_sdf_serial_chain():
+    chain = pk.build_serial_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read(), 'arm_wrist_roll')
+    chain = chain.to(dtype=torch.float64)
+    tg = chain.forward_kinematics([0., math.pi / 2.0, -0.5, 0.])
+    pos, rot = quat_pos_from_transform3d(tg)
+    assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=torch.float64))
+
+
 def test_cuda():
     if torch.cuda.is_available():
         d = "cuda"
@@ -197,9 +206,9 @@ def test_cuda():
 
         ret = chain.forward_kinematics({
             'arm_shoulder_pan_joint': 0,
-            'arm_elbow_pan_joint': math.pi / 2.0,
-            'arm_wrist_lift_joint': -0.5,
-            'arm_wrist_roll_joint': 0,
+            'arm_elbow_pan_joint':    math.pi / 2.0,
+            'arm_wrist_lift_joint':   -0.5,
+            'arm_wrist_roll_joint':   0,
         })
         tg = ret['arm_wrist_roll']
         pos, rot = quat_pos_from_transform3d(tg)
