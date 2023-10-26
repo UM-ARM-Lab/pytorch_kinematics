@@ -119,23 +119,19 @@ def test_gradient():
 def test_jacobian_prismatic():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "prismatic_robot.urdf")).read(), "link4")
     th = torch.zeros(3)
-    tg = chain.forward_kinematics(th)
-    m = tg.get_matrix()
+    m = chain.forward_kinematics(th).get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0, 0, 1.]))
     th = torch.tensor([0, 0.1, 0])
-    tg = chain.forward_kinematics(th)
-    m = tg.get_matrix()
+    m = chain.forward_kinematics(th).get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0, -0.1, 1.]))
     th = torch.tensor([0.1, 0.1, 0])
-    tg = chain.forward_kinematics(th)
-    m = tg.get_matrix()
+    m = chain.forward_kinematics(th).get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0, -0.1, 1.1]))
     th = torch.tensor([0.1, 0.1, 0.1])
-    tg = chain.forward_kinematics(th)
-    m = tg.get_matrix()
+    m = chain.forward_kinematics(th).get_matrix()
     pos = m[0, :3, 3]
     assert torch.allclose(pos, torch.tensor([0.1, -0.1, 1.1]))
 

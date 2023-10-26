@@ -35,7 +35,7 @@ def test_fk_mjcf():
     print(chain)
     print(chain.get_joint_parameter_names())
     th = {'hip_1': 1.0, 'ankle_1': 1}
-    ret = chain.forward_kinematics(th)
+    ret = chain.forward_kinematics(th).get_matrix()
     m = ret['aux_1']
     pos, rot = quat_pos_from_mat(m)
     assert quaternion_equality(rot, torch.tensor([0.87758256, 0., 0., 0.47942554], dtype=torch.float64))
@@ -50,18 +50,18 @@ def test_fk_mjcf():
 def test_fk_serial_mjcf():
     chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read(), 'front_left_foot')
     chain = chain.to(dtype=torch.float64)
-    mat = chain.forward_kinematics([1.0, 1.0])
+    mat = chain.forward_kinematics([1.0, 1.0]).get_matrix()
     pos, rot = quat_pos_from_mat(mat)
     assert quaternion_equality(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549], dtype=torch.float64))
     assert torch.allclose(pos, torch.tensor([0.13976626, 0.47635466, 0.75], dtype=torch.float64))
 
     chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read(), 'front_right_foot')
     chain = chain.to(dtype=torch.float64)
-    mat = chain.forward_kinematics([1.0, 1.0])
+    mat = chain.forward_kinematics([1.0, 1.0]).get_matrix()
 
     chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read(), 'right_back_foot')
     chain = chain.to(dtype=torch.float64)
-    mat = chain.forward_kinematics([1.0, 1.0])
+    mat = chain.forward_kinematics([1.0, 1.0]).get_matrix()
 
 
 def test_fkik():
@@ -82,20 +82,20 @@ def test_fkik():
            '</robot>'
     chain = pk.build_serial_chain_from_urdf(data, 'link3')
     th1 = torch.tensor([0.42553542, 0.17529176])
-    mat = chain.forward_kinematics(th1)
+    mat = chain.forward_kinematics(th1).get_matrix()
     pos, rot = quat_pos_from_mat(mat)
     assert torch.allclose(pos, torch.tensor([[1.91081784, 0.41280851, 0.0000]]))
     assert quaternion_equality(rot, torch.tensor([[0.95521418, 0.0000, 0.0000, 0.2959153]]))
     N = 20
     th_batch = torch.rand(N, 2)
-    mat_batch = chain.forward_kinematics(th_batch)
+    mat_batch = chain.forward_kinematics(th_batch).get_matrix()
     for i in range(N):
-        mat_i = chain.forward_kinematics(th_batch[i])
+        mat_i = chain.forward_kinematics(th_batch[i]).get_matrix()
         assert torch.allclose(mat_i, mat_batch[i])
 
     # check that gradients are passed through
     th2 = torch.tensor([0.42553542, 0.17529176], requires_grad=True)
-    mat = chain.forward_kinematics(th2)
+    mat = chain.forward_kinematics(th2).get_matrix()
     pos, rot = quat_pos_from_mat(mat)
     # note that since we are using existing operations we are not checking grad calculation correctness
     assert th2.grad is None
@@ -107,7 +107,7 @@ def test_urdf():
     chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read())
     chain.to(dtype=torch.float64)
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
-    ret = chain.forward_kinematics(th)
+    ret = chain.forward_kinematics(th).get_matrix()
     mat = ret['lbr_iiwa_link_7']
     pos, rot = quat_pos_from_mat(mat)
     assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
@@ -120,7 +120,7 @@ def test_urdf_serial():
     print(chain)
     print(chain.get_joint_parameter_names())
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
-    ret = chain.forward_kinematics(th, end_only=False)
+    ret = chain.forward_kinematics(th, end_only=False).get_matrix()
     mat = ret['lbr_iiwa_link_7']
     pos, rot = quat_pos_from_mat(mat)
     assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
@@ -135,7 +135,7 @@ def test_urdf_serial():
 
     import time
     start = time.time()
-    tg_batch = chain.forward_kinematics(th_batch)
+    tg_batch = chain.forward_kinematics(th_batch).get_matrix()
     m = tg_batch.get_matrix()
     elapsed = time.time() - start
     print("elapsed {}s for N={} when parallel".format(elapsed, N))
@@ -143,7 +143,7 @@ def test_urdf_serial():
     start = time.time()
     elapsed = 0
     for i in range(N):
-        mat = chain.forward_kinematics(th_batch[i])
+        mat = chain.forward_kinematics(th_batch[i]).get_matrix()
         elapsed += time.time() - start
         start = time.time()
         assert torch.allclose(mat.get_matrix().view(4, 4), m[i])
@@ -155,7 +155,7 @@ def test_fk_simple_arm():
     chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
     chain = chain.to(dtype=torch.float64)
     ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
-    mat = ret['arm_wrist_roll']
+    mat = ret['arm_wrist_roll'].get_matrix()
 
     pos, rot = quat_pos_from_mat(mat)
 
@@ -181,7 +181,7 @@ def test_cuda():
         chain = chain.to(dtype=dtype, device=d)
 
         ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
-        mat = ret['arm_wrist_roll']
+        mat = ret['arm_wrist_roll'].get_matrix()
         pos, rot = quat_pos_from_mat(mat)
         assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
         assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=dtype, device=d))

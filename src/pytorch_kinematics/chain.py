@@ -271,7 +271,7 @@ class Chain:
             self.link_offsets
         )
 
-        tool_transforms_dict = {self.idx_to_frame[frame_idx.item()]: transform for frame_idx, transform in
+        tool_transforms_dict = {self.idx_to_frame[frame_idx.item()]: tf.Transform3d(matrix=transform) for frame_idx, transform in
                                 zip(frame_indices, tool_transforms)}
 
         return tool_transforms_dict
