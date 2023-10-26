@@ -7,7 +7,7 @@ import torch
 import pytorch_kinematics.transforms as tf
 import zpk_cpp
 from pytorch_kinematics import jacobian
-from pytorch_kinematics.frame import Frame, Link
+from pytorch_kinematics.frame import Frame, Link, Joint
 
 
 def get_th_size(th):
@@ -65,10 +65,9 @@ class Chain:
         self.joint_indices = []
         self.n_joints = len(self.get_joint_parameter_names())
         self.axes = torch.zeros([self.n_joints, 3], dtype=self.dtype, device=self.device)
-        self.is_fixed = []
         self.link_offsets = []
         self.joint_offsets = []
-        self.joint_types = []
+        self.joint_type_indices = []
         queue = []
         queue.insert(-1, (self._root, -1, 0))  # the root has no parent so we use -1.
         idx = 0
@@ -84,7 +83,7 @@ class Chain:
             else:
                 self.parents_indices.append(self.parents_indices[parent_idx] + [parent_idx])
 
-            self.is_fixed.append(root.joint.joint_type == 'fixed')
+            is_fixed = root.joint.joint_type == 'fixed'
 
             if root.link.offset is None:
                 self.link_offsets.append(None)
@@ -96,19 +95,22 @@ class Chain:
             else:
                 self.joint_offsets.append(root.joint.offset.get_matrix())
 
-            if self.is_fixed[-1]:
+            if is_fixed:
                 self.joint_indices.append(-1)
             else:
                 jnt_idx = self.get_joint_parameter_names().index(root.joint.name)
                 self.axes[jnt_idx] = root.joint.axis
                 self.joint_indices.append(jnt_idx)
 
-            self.joint_types.append(root.joint.joint_type)
+            # these are integers so that we can use them as indices into tensors
+            # FIXME: how do we know the order of these types in C++?
+            self.joint_type_indices.append(Joint.TYPES.index(root.joint.joint_type))
 
             for child in root.children:
                 queue.append((child, idx, depth + 1))
 
             idx += 1
+        self.joint_type_indices = torch.tensor(self.joint_type_indices)
         self.joint_indices = torch.tensor(self.joint_indices)
         self.parents_indices = [torch.tensor(p, dtype=torch.long, device=self.device) for p in self.parents_indices]
 
@@ -121,6 +123,7 @@ class Chain:
 
         self.identity = self.identity.to(device=self.device, dtype=self.dtype)
         self.parents_indices = [p.to(dtype=torch.long, device=self.device) for p in self.parents_indices]
+        self.joint_type_indices = self.joint_type_indices.to(dtype=torch.long, device=self.device)
         self.axes = self.axes.to(dtype=self.dtype, device=self.device)
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
@@ -289,7 +292,6 @@ class Chain:
         #     axes_expanded,
         #     th,
         #     self.parent_indices,
-        #     self.is_fixed,
         #     self.joint_indices,
         #     self.joint_offsets,
         #     self.link_offsets
@@ -304,8 +306,6 @@ class Chain:
         # for all joint types and then select the appropriate one for each joint.
         rev_jnt_transform = tensor_axis_and_angle_to_matrix(axes_expanded, th)
         pris_jnt_transform = tensor_axis_and_d_to_pris_matrix(axes_expanded, th)
-        # jnt_transform = torch.where(self.joint_types, rev_jnt_transform, pris_jnt_transform)
-        jnt_transform = rev_jnt_transform
 
         for frame_idx in frame_indices:
             frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
@@ -324,9 +324,15 @@ class Chain:
                     if joint_offset_i is not None:
                         frame_transform = frame_transform @ joint_offset_i
 
-                    if not self.is_fixed[chain_idx]:
-                        jnt_idx = self.joint_indices[chain_idx]
-                        jnt_transform_i = jnt_transform[:, jnt_idx]
+                    jnt_idx = self.joint_indices[chain_idx]
+                    jnt_type = self.joint_type_indices[chain_idx]
+                    if jnt_type == 0:
+                        pass
+                    elif jnt_type == 1:
+                        jnt_transform_i = rev_jnt_transform[:, jnt_idx]
+                        frame_transform = frame_transform @ jnt_transform_i
+                    elif jnt_type == 2:
+                        jnt_transform_i = pris_jnt_transform[:, jnt_idx]
                         frame_transform = frame_transform @ jnt_transform_i
 
             frame_transforms[frame_idx.item()] = frame_transform
