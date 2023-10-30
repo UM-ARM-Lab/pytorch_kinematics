@@ -1,11 +1,26 @@
-#include <optional>
 #include <torch/extension.h>
+
+#include <optional>
 #include <vector>
 
 using namespace torch::indexing;
 
-torch::Tensor axis_and_angle_to_matrix(torch::Tensor axis,
-                                       torch::Tensor theta) {
+torch::Tensor axis_and_d_to_pris_matrix(torch::Tensor axis, torch::Tensor d) {
+  /**
+   * axis is [b, n, 3]
+   * d is [b, n]
+   *
+   * Output is [b, n, 4, 4]
+   */
+  auto b = axis.size(0);
+  auto n = axis.size(1);
+  auto mat44 = torch::eye(4).to(axis).repeat({b, n, 1, 1});
+  auto pos = axis * d.unsqueeze(-1);
+  mat44.index_put_({Ellipsis, Slice(0, 3), 3}, pos);
+  return mat44;
+}
+
+torch::Tensor axis_and_angle_to_matrix(torch::Tensor axis, torch::Tensor theta) {
   /**
    * cos is not that precise for float32, you may want to use float64
    * axis is [b, n, 3]
@@ -14,8 +29,7 @@ torch::Tensor axis_and_angle_to_matrix(torch::Tensor axis,
    */
   auto b = axis.size(0);
   auto n = axis.size(1);
-  auto m =
-      torch::eye(4).to(axis).unsqueeze(0).unsqueeze(0).repeat({b, n, 1, 1});
+  auto m = torch::eye(4).to(axis).unsqueeze(0).unsqueeze(0).repeat({b, n, 1, 1});
 
   auto kx = axis.index({Ellipsis, 0});
   auto ky = axis.index({Ellipsis, 1});
@@ -41,49 +55,53 @@ torch::Tensor axis_and_angle_to_matrix(torch::Tensor axis,
   return m;
 }
 
-std::vector<torch::Tensor>
-fk(torch::Tensor link_indices, torch::Tensor axes, torch::Tensor th,
-   std::vector<int> parent_indices, std::vector<bool> is_fixed,
-   torch::Tensor joint_indices,
-   std::vector<std::optional<torch::Tensor>> joint_offsets,
-   std::vector<std::optional<torch::Tensor>> link_offsets) {
-  std::vector<torch::Tensor> link_transforms;
+std::map<int64_t, torch::Tensor> fk(torch::Tensor frame_indices, torch::Tensor axes, torch::Tensor th,
+                              std::vector<torch::Tensor> parents_indices, torch::Tensor joint_type_indices,
+                              torch::Tensor joint_indices, std::vector<std::optional<torch::Tensor>> joint_offsets,
+                              std::vector<std::optional<torch::Tensor>> link_offsets) {
+  std::map<int64_t, torch::Tensor> frame_transforms;
 
-  auto b = th.size(0);
-  // NOTE: assumes revolute joint!
-  auto const jnt_transform = axis_and_angle_to_matrix(axes, th);
+  auto const b = th.size(0);
+  auto const axes_expanded = axes.unsqueeze(0).repeat({b, 1, 1});
 
-  for (auto i{0}; i < link_indices.size(0); ++i) {
-    auto idx = link_indices.index({i}).item().to<int>();
-    auto link_transform = torch::eye(4).to(th).unsqueeze(0).repeat({b, 1, 1});
+  auto const rev_jnt_transform = axis_and_angle_to_matrix(axes_expanded, th);
+  auto const pris_jnt_transform = axis_and_d_to_pris_matrix(axes_expanded, th);
 
-    while (idx >= 0) {
-      auto const joint_offset_i = joint_offsets[idx];
-      if (joint_offset_i) {
-        link_transform = torch::matmul(*joint_offset_i, link_transform);
+  for (int64_t i = 0; i < frame_indices.size(0); i++) {
+    auto const frame_idx = frame_indices[i].item<int64_t>();
+    auto frame_transform = torch::eye(4).to(th).unsqueeze(0).expand({b, 4, 4});
+
+    auto const parent_indices = parents_indices[frame_idx];
+    for (int64_t j = 0; j < parent_indices.size(0); j++) {
+      auto const chain_idx_tensor = parent_indices[j];
+      int64_t chain_idx_int = chain_idx_tensor.item<int64_t>();
+      if (frame_transforms.find(chain_idx_int) != frame_transforms.end()) {
+        frame_transform = frame_transforms[chain_idx_int];
+      } else {
+        auto const link_offset_i = link_offsets[chain_idx_int];
+        if (link_offset_i) {
+          frame_transform = frame_transform.matmul(*link_offset_i);
+        }
+
+        auto const joint_offset_i = joint_offsets[chain_idx_int];
+        if (joint_offset_i) {
+          frame_transform = frame_transform.matmul(*joint_offset_i);
+        }
+
+        auto const jnt_idx = joint_indices.index({chain_idx_tensor}).item<int64_t>();
+        auto const jnt_type = joint_type_indices.index({chain_idx_tensor}).item<int64_t>();
+        if (jnt_type == 1) {
+          auto const jnt_transform_i = rev_jnt_transform.index({Slice(), jnt_idx});
+          frame_transform = frame_transform.matmul(jnt_transform_i);
+        } else if (jnt_type == 2) {
+          auto const jnt_transform_i = pris_jnt_transform.index({Slice(), jnt_idx});
+          frame_transform = frame_transform.matmul(jnt_transform_i);
+        }
       }
-
-      if (!is_fixed[idx]) {
-        auto const jnt_idx = joint_indices[idx];
-        auto const jnt_transform_i = jnt_transform.index({Slice(), jnt_idx});
-        link_transform = torch::matmul(jnt_transform_i, link_transform);
-      }
-
-      auto const link_offset_i = link_offsets[idx];
-      if (link_offset_i) {
-        link_transform = torch::matmul(*link_offset_i, link_transform);
-      }
-
-      idx = parent_indices[idx];
     }
-
-     link_transforms.emplace_back(link_transform);
+    frame_transforms.emplace(frame_idx, frame_transform);
   }
-  return link_transforms;
+  return frame_transforms;
 }
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("axis_and_angle_to_matrix", &axis_and_angle_to_matrix,
-        "axis_and_angle_to_matrix", py::arg("axis"), py::arg("theta"));
-  m.def("fk", &fk, "fk");
-}
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) { m.def("fk", &fk, "fk"); }

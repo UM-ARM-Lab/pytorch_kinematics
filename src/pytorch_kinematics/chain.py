@@ -1,11 +1,12 @@
 from functools import lru_cache
+from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
+from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_d_to_pris_matrix
 from typing import Optional, Sequence
 
 import numpy as np
 import torch
 
 import pytorch_kinematics.transforms as tf
-import zpk_cpp
 from pytorch_kinematics import jacobian
 from pytorch_kinematics.frame import Frame, Link, Joint
 
@@ -68,7 +69,7 @@ class Chain:
 
         # As we traverse the kinematic tree, each frame is assigned an index.
         # We use this index to build a flat representation of the tree.
-        # parent_indices and joint_indices all use this indexing scheme.
+        # parents_indices and joint_indices all use this indexing scheme.
         # The root frame will be index 0 and the first frame of the root frame's children will be index 1,
         # then the child of that frame will be index 2, etc. In other words, it's a depth-first ordering.
         self.parents_indices = []  # list of indices from 0 (root) to the given frame
@@ -89,9 +90,9 @@ class Chain:
             self.frame_to_idx[name_strip] = idx
             self.idx_to_frame[idx] = name_strip
             if parent_idx == -1:
-                self.parents_indices.append([])
+                self.parents_indices.append([idx])
             else:
-                self.parents_indices.append(self.parents_indices[parent_idx] + [parent_idx])
+                self.parents_indices.append(self.parents_indices[parent_idx] + [idx])
 
             is_fixed = root.joint.joint_type == 'fixed'
 
@@ -134,6 +135,7 @@ class Chain:
         self.identity = self.identity.to(device=self.device, dtype=self.dtype)
         self.parents_indices = [p.to(dtype=torch.long, device=self.device) for p in self.parents_indices]
         self.joint_type_indices = self.joint_type_indices.to(dtype=torch.long, device=self.device)
+        self.joint_indices = self.joint_indices.to(dtype=torch.long, device=self.device)
         self.axes = self.axes.to(dtype=self.dtype, device=self.device)
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
@@ -298,25 +300,36 @@ class Chain:
         th = self.ensure_tensor(th)
         th = torch.atleast_2d(th)
 
-        b, n = th.shape
+        import zpk_cpp
+        frame_transforms = zpk_cpp.fk(
+            frame_indices,
+            self.axes,
+            th,
+            self.parents_indices,
+            self.joint_type_indices,
+            self.joint_indices,
+            self.joint_offsets,
+            self.link_offsets
+        )
+
+        frame_names_and_transform3ds = {self.idx_to_frame[frame_idx]: tf.Transform3d(matrix=transform) for
+                                        frame_idx, transform in frame_transforms.items()}
+
+        return frame_names_and_transform3ds
+
+    def forward_kinematics_py(self, th, frame_indices: Optional = None):
+        if frame_indices is None:
+            frame_indices = self.get_all_frame_indices()
+
+        th = self.ensure_tensor(th)
+        th = torch.atleast_2d(th)
+
+        b = th.shape[0]
 
         axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
 
-        # TODO: reimplement in CPP
-        # frame_transforms = zpk_cpp.fk(
-        #     frame_indices,
-        #     axes_expanded,
-        #     th,
-        #     self.parent_indices,
-        #     self.joint_indices,
-        #     self.joint_offsets,
-        #     self.link_offsets
-        # )
-
-        from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
-        from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_d_to_pris_matrix
         frame_transforms = {}
-        b = th.size(0)
+
         # compute all joint transforms at once first
         # in order to handle multiple joint types without branching, we create all possible transforms
         # for all joint types and then select the appropriate one for each joint.
@@ -327,9 +340,8 @@ class Chain:
             frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
 
             # iterate down the list and compose the transform
-            chain_indices = torch.cat((self.parents_indices[frame_idx], frame_idx[None]))
-            for chain_idx in chain_indices:
-                if chain_idx.item() in frame_transforms and False:  # DEBUGGING
+            for chain_idx in self.parents_indices[frame_idx]:
+                if chain_idx.item() in frame_transforms:
                     frame_transform = frame_transforms[chain_idx.item()]
                 else:
                     link_offset_i = self.link_offsets[chain_idx]
@@ -481,13 +493,34 @@ class SerialChain(Chain):
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
+        frame_indices, th = self.convert_serial_inputs_to_chain_inputs(end_only, th)
+
+        mat = super().forward_kinematics(th, frame_indices)
+
+        if end_only:
+            return mat[self._serial_frames[-1].name]
+        else:
+            return mat
+
+    def forward_kinematics_py(self, th, end_only: bool = True):
+        """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
+        frame_indices, th = self.convert_serial_inputs_to_chain_inputs(end_only, th)
+
+        mat = super().forward_kinematics_py(th, frame_indices)
+
+        if end_only:
+            return mat[self._serial_frames[-1].name]
+        else:
+            return mat
+
+
+    def convert_serial_inputs_to_chain_inputs(self, end_only, th):
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
         else:
             # pass through default behavior for frame indices being None, which is currently
             # to return all frames.
             frame_indices = None
-
         if get_th_size(th) < self.n_joints:
             # if th is only a partial list of joints, assume it's a list of joints for only the serial chain.
             partial_th = th
@@ -500,13 +533,7 @@ class SerialChain(Chain):
                 jnt_idx = self.joint_indices[k]
                 if frame.joint.joint_type != 'fixed':
                     th[jnt_idx] = partial_th_i
-
-        mat = super().forward_kinematics(th, frame_indices)
-
-        if end_only:
-            return mat[self._serial_frames[-1].name]
-        else:
-            return mat
+        return frame_indices, th
 
     def forward_kinematics_slow(self, th, world=None, end_only=True):
         if world is None:
