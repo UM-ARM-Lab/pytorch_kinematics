@@ -1,21 +1,11 @@
-import os
 import math
+import os
 
-import numpy as np
 import torch
 
 import pytorch_kinematics as pk
 
 TEST_DIR = os.path.dirname(__file__)
-
-
-def mat_to_rr_tf3d(frame_transform):
-    import rerun as rr
-    frame_transform = torch.squeeze(frame_transform).cpu().numpy()
-    pos = frame_transform[:3, 3]
-    rot = frame_transform[:3, :3]
-    rr_tf3d = rr.Transform3D(translation=pos, mat3x3=rot)
-    return rr_tf3d
 
 
 def quat_pos_from_transform3d(tg):

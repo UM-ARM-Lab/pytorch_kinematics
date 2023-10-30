@@ -1,3 +1,4 @@
+""" Generate performance data for multiple models, devices, data types, batch sizes, etc. """
 import timeit
 from time import perf_counter
 import torch
@@ -7,7 +8,6 @@ import numpy as np
 
 
 def main():
-    # do an in-depth analysis of multiple models, devices, data types, batch sizes, etc.
     np.set_printoptions(precision=3, suppress=True, linewidth=220)
     torch.set_printoptions(precision=3, sci_mode=False, linewidth=220)
 
