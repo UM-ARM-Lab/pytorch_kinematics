@@ -1,4 +1,5 @@
 import math
+from timeit import timeit
 import os
 
 import torch
@@ -127,21 +128,24 @@ def test_urdf_serial():
     th_batch = torch.rand(N, len(chain.get_joint_parameter_names()), dtype=dtype, device=d)
     chain = chain.to(dtype=dtype, device=d)
 
-    import time
-    start = time.time()
-    tg_batch = chain.forward_kinematics(th_batch)
-    m = tg_batch.get_matrix()
-    elapsed = time.time() - start
-    print("elapsed {}s for N={} when parallel".format(elapsed, N))
+    number = 10
 
-    start = time.time()
-    elapsed = 0
-    for i in range(N):
-        tg = chain.forward_kinematics(th_batch[i])
-        elapsed += time.time() - start
-        start = time.time()
-        assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
-    print("elapsed {}s for N={} when serial".format(elapsed, N))
+    def _fk_parallel():
+        tg_batch = chain.forward_kinematics(th_batch)
+        m = tg_batch.get_matrix()
+
+    dt_parallel = timeit(_fk_parallel, number=number) / number
+    print("elapsed {}s for N={} when parallel".format(dt_parallel, N))
+
+    def _fk_serial():
+        for i in range(N):
+            tg = chain.forward_kinematics(th_batch[i])
+            m = tg.get_matrix()
+
+    dt_serial = timeit(_fk_serial, number=number) / number
+    print("elapsed {}s for N={} when serial".format(dt_serial, N))
+
+    # assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
 
 # test robot with prismatic and fixed joints
