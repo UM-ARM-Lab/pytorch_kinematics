@@ -8,3 +8,4 @@ dist
 # These are cloned/generated when testing with mujoco
 tests/MUJOCO_LOG.TXT
 tests/mujoco_menagerie/
+.ipynb_checkpoints
