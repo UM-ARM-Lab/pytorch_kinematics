@@ -5,93 +5,6 @@ import torch
 import pytorch_kinematics as pk
 import numpy as np
 
-N = 10000
-number = 100
-
-
-def test_val_fk_correctness():
-    val = pk.build_chain_from_mjcf(open('val.xml').read())
-    val = val.to(dtype=torch.float32, device='cuda')
-
-    th = torch.zeros(N, 20, dtype=torch.float32, device='cuda')
-
-    frame_indices = val.get_frame_indices('left_tool', 'right_tool')
-    t_py = val.forward_kinematics_py(th, frame_indices)
-    t_cpp = val.forward_kinematics(th, frame_indices)
-    l_py = t_py['left_tool'].get_matrix()
-    l_cpp = t_cpp['left_tool'].get_matrix()
-    r_py = t_py['right_tool'].get_matrix()
-    r_cpp = t_cpp['right_tool'].get_matrix()
-
-    assert torch.allclose(l_py, l_cpp)
-    assert torch.allclose(r_py, r_cpp)
-
-
-def test_val_fk_perf():
-    val = pk.build_serial_chain_from_mjcf(open('val.xml').read(), end_link_name='left_tool')
-    val = val.to(dtype=torch.float32, device='cuda')
-
-    th = torch.zeros(N, 20, dtype=torch.float32, device='cuda')
-
-    def _val_old_fk():
-        tg = val.forward_kinematics_slow(th, end_only=True)
-        m = tg.get_matrix()
-        return m
-
-    def _val_new_py_fk():
-        tg = val.forward_kinematics_py(th, end_only=True)
-        m = tg.get_matrix()
-        return m
-
-    def _val_new_cpp_fk():
-        tg = val.forward_kinematics(th, end_only=True)
-        m = tg.get_matrix()
-        return m
-
-    val_old_dt = timeit.timeit(_val_old_fk, number=number)
-    print(f'Val FK OLD dt: {val_old_dt / number:.4f}')
-
-    val_new_py_dt = timeit.timeit(_val_new_py_fk, number=number)
-    print(f'Val FK NEW dt: {val_new_py_dt / number:.4f}')
-
-    val_new_cpp_dt = timeit.timeit(_val_new_cpp_fk, number=number)
-    print(f'Val FK NEW C++ dt: {val_new_cpp_dt / number:.4f}')
-
-    assert val_old_dt > val_new_cpp_dt
-
-
-def test_kuka_fk_perf():
-    kuka = pk.build_serial_chain_from_urdf(open('kuka_iiwa.urdf').read(), end_link_name='lbr_iiwa_link_7')
-    kuka = kuka.to(dtype=torch.float32, device='cuda')
-
-    th = torch.zeros(N, 7, dtype=torch.float32, device='cuda')
-
-    def _kuka_old_fk():
-        tg = kuka.forward_kinematics_slow(th, end_only=True)
-        m = tg.get_matrix()
-        return m
-
-    def _kuka_new_py_fk():
-        tg = kuka.forward_kinematics_py(th, end_only=True)
-        m = tg.get_matrix()
-        return m
-
-    def _kuka_new_cpp_fk():
-        tg = kuka.forward_kinematics(th, end_only=True)
-        m = tg.get_matrix()
-        return m
-
-    kuka_old_dt = timeit.timeit(_kuka_old_fk, number=number)
-    print(f'Kuka FK OLD dt: {kuka_old_dt / number:.4f}')
-
-    kuka_new_py_dt = timeit.timeit(_kuka_new_py_fk, number=number)
-    print(f'Kuka FK NEW dt: {kuka_new_py_dt / number:.4f}')
-
-    kuka_new_cpp_dt = timeit.timeit(_kuka_new_cpp_fk, number=number)
-    print(f'Kuka FK NEW C++ dt: {kuka_new_cpp_dt / number:.4f}')
-
-    assert kuka_old_dt > kuka_new_cpp_dt
-
 
 def main():
     # do an in-depth analysis of multiple models, devices, data types, batch sizes, etc.
@@ -108,6 +21,7 @@ def main():
     devices = ['cpu', 'cuda']
     dtypes = [torch.float32, torch.float64]
     batch_sizes = [1, 10, 100, 1_000, 10_000, 100_000]
+    number = 100
 
     # iterate over all combinations and store in a pandas dataframe
     headers = ['chain', 'device', 'dtype', 'batch_size', 'time']

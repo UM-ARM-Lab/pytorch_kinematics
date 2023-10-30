@@ -317,59 +317,6 @@ class Chain:
 
         return frame_names_and_transform3ds
 
-    def forward_kinematics_py(self, th, frame_indices: Optional = None):
-        if frame_indices is None:
-            frame_indices = self.get_all_frame_indices()
-
-        th = self.ensure_tensor(th)
-        th = torch.atleast_2d(th)
-
-        b = th.shape[0]
-
-        axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
-
-        frame_transforms = {}
-
-        # compute all joint transforms at once first
-        # in order to handle multiple joint types without branching, we create all possible transforms
-        # for all joint types and then select the appropriate one for each joint.
-        rev_jnt_transform = tensor_axis_and_angle_to_matrix(axes_expanded, th)
-        pris_jnt_transform = tensor_axis_and_d_to_pris_matrix(axes_expanded, th)
-
-        for frame_idx in frame_indices:
-            frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
-
-            # iterate down the list and compose the transform
-            for chain_idx in self.parents_indices[frame_idx]:
-                if chain_idx.item() in frame_transforms:
-                    frame_transform = frame_transforms[chain_idx.item()]
-                else:
-                    link_offset_i = self.link_offsets[chain_idx]
-                    if link_offset_i is not None:
-                        frame_transform = frame_transform @ link_offset_i
-
-                    joint_offset_i = self.joint_offsets[chain_idx]
-                    if joint_offset_i is not None:
-                        frame_transform = frame_transform @ joint_offset_i
-
-                    jnt_idx = self.joint_indices[chain_idx]
-                    jnt_type = self.joint_type_indices[chain_idx]
-                    if jnt_type == 0:
-                        pass
-                    elif jnt_type == 1:
-                        jnt_transform_i = rev_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
-                    elif jnt_type == 2:
-                        jnt_transform_i = pris_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
-
-            frame_transforms[frame_idx.item()] = frame_transform
-
-        frame_names_and_transform3ds = {self.idx_to_frame[frame_idx]: tf.Transform3d(matrix=transform) for
-                                        frame_idx, transform in frame_transforms.items()}
-
-        return frame_names_and_transform3ds
-
     def ensure_tensor(self, th):
         """
         Converts a number of possible types into a tensor. The order of the tensor is determined by the order
@@ -502,18 +449,6 @@ class SerialChain(Chain):
         else:
             return mat
 
-    def forward_kinematics_py(self, th, end_only: bool = True):
-        """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
-        frame_indices, th = self.convert_serial_inputs_to_chain_inputs(end_only, th)
-
-        mat = super().forward_kinematics_py(th, frame_indices)
-
-        if end_only:
-            return mat[self._serial_frames[-1].name]
-        else:
-            return mat
-
-
     def convert_serial_inputs_to_chain_inputs(self, end_only, th):
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
@@ -534,29 +469,3 @@ class SerialChain(Chain):
                 if frame.joint.joint_type != 'fixed':
                     th[jnt_idx] = partial_th_i
         return frame_indices, th
-
-    def forward_kinematics_slow(self, th, world=None, end_only=True):
-        if world is None:
-            world = tf.Transform3d()
-        if world.dtype != self.dtype or world.device != self.device:
-            world = world.to(dtype=self.dtype, device=self.device, copy=True)
-        th, N = ensure_2d_tensor(th, self.dtype, self.device)
-        zeros = torch.zeros([N, 1], dtype=world.dtype, device=world.device)
-
-        theta_idx = 0
-        link_transforms = {}
-        trans = tf.Transform3d(matrix=world.get_matrix().repeat(N, 1, 1))
-        for f in self._serial_frames:
-            if f.link.offset is not None:
-                trans = trans.compose(f.link.offset)
-
-            if f.joint.joint_type == "fixed":  # If fixed
-                trans = trans.compose(f.get_transform(zeros))
-            else:
-                joint_transform = f.get_transform(th[:, theta_idx].view(N, 1))
-                trans = trans.compose(joint_transform)
-                theta_idx += 1
-
-            link_transforms[f.link.name] = trans
-
-        return link_transforms[self._serial_frames[-1].link.name] if end_only else link_transforms
