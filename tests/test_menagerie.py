@@ -44,7 +44,7 @@ def test_menagerie():
         print(f"\t {chain.get_frame_names()}")
         print(f"\t {chain.get_joint_parameter_names()}")
         th = np.zeros(len(chain.get_joint_parameter_names()))
-        fk_dict = chain.forward_kinematics(th, end_only=True)
+        fk_dict = chain.forward_kinematics(th)
 
 
 if __name__ == '__main__':

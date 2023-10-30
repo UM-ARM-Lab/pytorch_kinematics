@@ -11,8 +11,9 @@ def test_axis_angle_to_matrix_perf():
     number = 100
     N = 1_000
 
-    axis_angle = torch.randn([N, 3], device='cuda', dtype=torch.float64)
-    axis_1d = torch.tensor([1., 0, 0], device='cuda', dtype=torch.float64)  # in the FK code this is NOT batched!
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    axis_angle = torch.randn([N, 3], device=device, dtype=torch.float64)
+    axis_1d = torch.tensor([1., 0, 0], device=device, dtype=torch.float64)  # in the FK code this is NOT batched!
     theta = axis_angle.norm(dim=1, keepdim=True)
 
     dt1 = timeit.timeit(lambda: axis_angle_to_matrix(axis_angle), number=number)
