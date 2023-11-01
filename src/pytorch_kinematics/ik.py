@@ -73,6 +73,45 @@ def gaussian_around_config(config: torch.Tensor, std: float) -> Callable[[int], 
     return config_sampling_method
 
 
+class LineSearch:
+    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx):
+        raise NotImplementedError()
+
+
+class BacktrackingLineSearch(LineSearch):
+    def __init__(self, max_lr=2.0, decrease_factor=0.5, max_iterations=5, sufficient_decrease=0.01):
+        self.initial_lr = max_lr
+        self.decrease_factor = decrease_factor
+        self.max_iterations = max_iterations
+        self.sufficient_decrease = sufficient_decrease
+
+    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx):
+        N = target_pos.shape[0]
+        NM = q.shape[0]
+        M = NM // N
+        lr = torch.ones(NM, device=q.device) * self.initial_lr
+        err = initial_dx.squeeze().norm(dim=-1)
+        for i in range(self.max_iterations):
+            # try stepping with this learning rate
+            q_new = q + lr.unsqueeze(1) * dq
+            # evaluate the error
+            m = chain.forward_kinematics(q_new).get_matrix()
+            m = m.view(-1, M, 4, 4)
+            dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_rot_rpy)
+            err_new = dx.squeeze().norm(dim=-1)
+            # check if it's better
+            improvement = err - err_new
+            improved = improvement > self.sufficient_decrease
+            # if it's better, we're done for those
+            # TODO mask out the ones that are better and stop considering them
+            # if it's not better, reduce the learning rate
+            lr[~improved] *= self.decrease_factor
+
+        improvement = improvement.reshape(-1, M)
+        improvement = improvement.mean(dim=1)
+        return lr, improvement
+
+
 class InverseKinematics:
     """Jacobian follower based inverse kinematics solver"""
 
@@ -81,7 +120,8 @@ class InverseKinematics:
                  initial_configs: Optional[torch.Tensor] = None, num_retries: Optional[int] = None,
                  joint_limits: Optional[torch.Tensor] = None,
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
-                 max_iterations: int = 100, lr: float = 0.5,
+                 max_iterations: int = 50,
+                 lr: float = 0.5, line_search: Optional[LineSearch] = None,
                  regularlization: float = 1e-9,
                  debug=False,
                  early_stopping_any_converged=False,
@@ -108,6 +148,7 @@ class InverseKinematics:
         self.lr = lr
         self.regularlization = regularlization
         self.optimizer_method = optimizer_method
+        self.line_search = line_search
 
         self.pos_tolerance = pos_tolerance
         self.rot_tolerance = rot_tolerance
@@ -149,6 +190,25 @@ class InverseKinematics:
         raise NotImplementedError()
 
 
+def delta_pose(m: torch.tensor, target_pos, target_rot_rpy):
+    """
+    Determine the error in position and rotation between the given poses and the target poses
+
+    :param m: (N x M x 4 x 4) tensor of homogenous transforms
+    :param target_pos:
+    :param target_rot_rpy:
+    :return: (N*M, 6, 1) tensor of delta pose (dx, dy, dz, droll, dpitch, dyaw)
+    """
+    pos_diff = target_pos.unsqueeze(1) - m[:, :, :3, 3]
+    pos_diff = pos_diff.view(-1, 3, 1)
+    rot_diff = target_rot_rpy.unsqueeze(1) - rotation_conversions.matrix_to_euler_angles(m[:, :, :3, :3],
+                                                                                         "XYZ")
+    rot_diff = rot_diff.view(-1, 3, 1)
+
+    dx = torch.cat((pos_diff, rot_diff), dim=1)
+    return dx, pos_diff, rot_diff
+
+
 class PseudoInverseIK(InverseKinematics):
     def solve(self, target_poses: Transform3d) -> IKSolution:
         target = target_poses.get_matrix()
@@ -182,34 +242,36 @@ class PseudoInverseIK(InverseKinematics):
             optimizer = torch.optim.Adam([q], lr=self.lr)
         for i in range(self.max_iterations):
             with torch.no_grad():
-                # TODO early termination when below tolerance
                 # compute forward kinematics
                 # fk = self.chain.forward_kinematics(q)
                 # N x 6 x DOF
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
                 # unflatten to broadcast with goal
                 m = m.view(-1, self.num_retries, 4, 4)
+                dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_rot_rpy)
 
-                pos_diff = target_pos.unsqueeze(1) - m[:, :, :3, 3]
-                pos_diff = pos_diff.view(-1, 3, 1)
-                rot_diff = target_rot_rpy.unsqueeze(1) - rotation_conversions.matrix_to_euler_angles(m[:, :, :3, :3],
-                                                                                                     "XYZ")
-                rot_diff = rot_diff.view(-1, 3, 1)
-
-                dx = torch.cat((pos_diff, rot_diff), dim=1)
                 tmpA = J @ J.transpose(1, 2) + self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
                 A = torch.linalg.solve(tmpA, dx)
                 dq = J.transpose(1, 2) @ A
                 dq = dq.squeeze(2)
 
+            improvement = None
             if optimizer is not None:
                 q.grad = -dq
                 optimizer.step()
                 optimizer.zero_grad()
             else:
-                q = q + self.lr * dq
+                with torch.no_grad():
+                    if self.line_search is not None:
+                        lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_rot_rpy,
+                                                                          dx)
+                        lr = lr.unsqueeze(1)
+                    else:
+                        lr = self.lr
+                    q = q + lr * dq
 
             with torch.no_grad():
+                # TODO use improved to determine early termination due to lack of improvement
                 if self.early_stopping_any_converged:
                     converged_any = sol.update(q, pos_diff, rot_diff, self.pos_tolerance, self.rot_tolerance,
                                                use_remaining=False)
@@ -222,7 +284,7 @@ class PseudoInverseIK(InverseKinematics):
 
                 if self.debug:
                     pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
-                    rot_errors.append(rot_diff.norm(dim=(1, 2)))
+                    rot_errors.append(rot_diff.reshape(-1, 3).norm(dim=1))
 
         if self.debug:
             # errors
