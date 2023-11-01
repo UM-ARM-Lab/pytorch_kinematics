@@ -9,11 +9,14 @@ from matplotlib import pyplot as plt, cm as cm
 
 
 class IKSolution:
-    def __init__(self, dof, num_problems, num_retries, device="cpu"):
+    def __init__(self, dof, num_problems, num_retries, pos_tolerance, rot_tolerance, device="cpu"):
         self.device = device
         self.num_problems = num_problems
         self.num_retries = num_retries
         self.dof = dof
+        self.pos_tolerance = pos_tolerance
+        self.rot_tolerance = rot_tolerance
+
         M = num_problems
         # N x DOF tensor of joint angles; if converged[i] is False, then solutions[i] is undefined
         self.solutions = torch.zeros((M, self.num_retries, self.dof), device=self.device)
@@ -34,33 +37,43 @@ class IKSolution:
         self.converged_rot_any = torch.zeros_like(self.remaining)
         self.converged_any = torch.zeros_like(self.remaining)
 
-    def update(self, q: torch.tensor, pos_diff: torch.tensor, rot_diff: torch.tensor, pos_tolerance, rot_tolerance,
-               use_remaining=False):
-        err_pos = pos_diff.reshape(-1, self.num_retries, 3).norm(dim=-1)
-        err_rot = rot_diff.reshape(-1, self.num_retries, 3).norm(dim=-1)
-        converged_pos = err_pos < pos_tolerance
-        converged_rot = err_rot < rot_tolerance
+    def update_remaining_with_keep_mask(self, keep: torch.tensor):
+        _r = self.remaining.clone()
+        self.remaining[_r] = _r[_r] & keep
+        this_masked = _r ^ self.remaining
+        return this_masked
+
+    def update(self, q: torch.tensor, err: torch.tensor,
+               use_remaining=False, keep_mask=None):
+        err = err.reshape(-1, self.num_retries, 6)
+        err_pos = err[..., :3].norm(dim=-1)
+        err_rot = err[..., 3:].norm(dim=-1)
+        converged_pos = err_pos < self.pos_tolerance
+        converged_rot = err_rot < self.rot_tolerance
         converged = converged_pos & converged_rot
         converged_any = converged.any(dim=1)
+
+        if keep_mask is None:
+            keep_mask = ~converged_any
 
         # stop considering problems where any converged
         qq = q.reshape(-1, self.num_retries, self.dof)
 
         if use_remaining:
             this_converged = self.remaining
-            converged_any[:] = True
+            keep_mask[:] = False
         else:
-            _r = self.remaining.clone()
-            self.remaining[_r] = _r[_r] & ~converged_any
-            this_converged = _r ^ self.remaining
+            # those that have converged are no longer remaining
+            this_converged = self.update_remaining_with_keep_mask(keep_mask)
 
-        self.solutions[this_converged] = qq[converged_any]
-        self.err_pos[this_converged] = err_pos[converged_any]
-        self.err_rot[this_converged] = err_rot[converged_any]
-        self.converged_pos[this_converged] = converged_pos[converged_any]
-        self.converged_rot[this_converged] = converged_rot[converged_any]
-        self.converged[this_converged] = converged[converged_any]
-        self.converged_any[this_converged] = converged_any[converged_any]
+        done = ~keep_mask
+        self.solutions[this_converged] = qq[done]
+        self.err_pos[this_converged] = err_pos[done]
+        self.err_rot[this_converged] = err_rot[done]
+        self.converged_pos[this_converged] = converged_pos[done]
+        self.converged_rot[this_converged] = converged_rot[done]
+        self.converged[this_converged] = converged[done]
+        self.converged_any[this_converged] = converged_any[done]
 
         return converged_any
 
@@ -125,6 +138,7 @@ class InverseKinematics:
                  regularlization: float = 1e-9,
                  debug=False,
                  early_stopping_any_converged=False,
+                 early_stopping_no_improvement=True,
                  optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd"
                  ):
         """
@@ -143,12 +157,17 @@ class InverseKinematics:
         self.dof = len(joint_names)
         self.debug = debug
         self.early_stopping_any_converged = early_stopping_any_converged
+        self.early_stopping_no_improvement = early_stopping_no_improvement
+        self.past_improvement = None
 
         self.max_iterations = max_iterations
         self.lr = lr
         self.regularlization = regularlization
         self.optimizer_method = optimizer_method
         self.line_search = line_search
+
+        self.err = None
+        self.err_prev = None
 
         self.pos_tolerance = pos_tolerance
         self.rot_tolerance = rot_tolerance
@@ -209,6 +228,10 @@ def delta_pose(m: torch.tensor, target_pos, target_rot_rpy):
     return dx, pos_diff, rot_diff
 
 
+def apply_mask(mask, *args):
+    return [a[mask] for a in args]
+
+
 class PseudoInverseIK(InverseKinematics):
     def solve(self, target_poses: Transform3d) -> IKSolution:
         target = target_poses.get_matrix()
@@ -220,7 +243,7 @@ class PseudoInverseIK(InverseKinematics):
         # convert target rot to desired rotation about x,y,z
         target_rot_rpy = rotation_conversions.matrix_to_euler_angles(target[:, :3, :3], "XYZ")
 
-        sol = IKSolution(self.dof, M, self.num_retries, device=self.device)
+        sol = IKSolution(self.dof, M, self.num_retries, self.pos_tolerance, self.rot_tolerance, device=self.device)
 
         q = self.initial_config
         if q.numel() == M * self.dof * self.num_retries:
@@ -242,6 +265,9 @@ class PseudoInverseIK(InverseKinematics):
             optimizer = torch.optim.Adam([q], lr=self.lr)
         for i in range(self.max_iterations):
             with torch.no_grad():
+                # early termination if we're out of problems to solve
+                if q.numel() == 0:
+                    break
                 # compute forward kinematics
                 # fk = self.chain.forward_kinematics(q)
                 # N x 6 x DOF
@@ -271,16 +297,54 @@ class PseudoInverseIK(InverseKinematics):
                     q = q + lr * dq
 
             with torch.no_grad():
-                # TODO use improved to determine early termination due to lack of improvement
-                if self.early_stopping_any_converged:
-                    converged_any = sol.update(q, pos_diff, rot_diff, self.pos_tolerance, self.rot_tolerance,
-                                               use_remaining=False)
-                    # stop considering problems where any converged
-                    qq = q.reshape(-1, self.num_retries, self.dof)
-                    q = qq[~converged_any]
+                self.err_prev = self.err
+                self.err_all = dx.squeeze()
+                self.err = self.err_all.norm(dim=-1)
+
+                def apply_mask_to_all(mask):
+                    nonlocal q, target_pos, target_rot_rpy, improvement
+                    q, target_pos, target_rot_rpy = apply_mask(mask,
+                                                               q.reshape(-1,
+                                                                         self.num_retries,
+                                                                         self.dof),
+                                                               target_pos,
+                                                               target_rot_rpy,
+                                                               )
                     q = q.reshape(-1, self.dof)
-                    target_pos = target_pos[~converged_any]
-                    target_rot_rpy = target_rot_rpy[~converged_any]
+                    if improvement is not None:
+                        improvement = improvement[mask]
+                    if self.err_prev is not None:
+                        self.err_prev = self.err_prev.reshape(-1, self.num_retries)
+                        self.err_prev = self.err_prev[mask]
+                        self.err_prev = self.err_prev.reshape(-1)
+                        if self.past_improvement is not None:
+                            self.past_improvement = self.past_improvement[mask]
+                    self.err = self.err.reshape(-1, self.num_retries)
+                    self.err = self.err[mask]
+                    self.err = self.err.reshape(-1)
+                    self.err_all = self.err_all.reshape(-1, self.num_retries, 6)
+                    self.err_all = self.err_all[mask]
+                    self.err_all = self.err_all.reshape(-1, 6)
+
+                if improvement is None and self.err_prev is not None:
+                    improvement = self.err_prev - self.err
+                    improvement = improvement.reshape(-1, self.num_retries)
+                    improvement = improvement.mean(dim=1)
+
+                if self.early_stopping_any_converged:
+                    # stop considering problems where any converged
+                    converged_any = sol.update(q, self.err_all, use_remaining=False)
+                    apply_mask_to_all(~converged_any)
+
+                if self.early_stopping_no_improvement:
+                    if self.past_improvement is not None:
+                        # average improvement of this and before
+                        avg_improvement = (improvement + self.past_improvement) / 2
+                        enough_improvement = avg_improvement > 0.0
+                        # stop working on those that we can't improve
+                        sol.update(q, self.err_all, use_remaining=False, keep_mask=enough_improvement)
+                        apply_mask_to_all(enough_improvement)
+                    self.past_improvement = improvement
 
                 if self.debug:
                     pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
@@ -307,5 +371,6 @@ class PseudoInverseIK(InverseKinematics):
             ax[1].set_ylabel("rotation error")
             plt.show()
 
-        sol.update(q, pos_diff, rot_diff, self.pos_tolerance, self.rot_tolerance, use_remaining=True)
+        if i == self.max_iterations - 1:
+            sol.update(q, self.err_all, use_remaining=True)
         return sol
