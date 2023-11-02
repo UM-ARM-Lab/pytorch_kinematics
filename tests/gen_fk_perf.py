@@ -24,19 +24,30 @@ def main():
     number = 100
 
     # iterate over all combinations and store in a pandas dataframe
-    headers = ['chain', 'device', 'dtype', 'batch_size', 'time']
+    headers = ['method', 'chain', 'device', 'dtype', 'batch_size', 'time']
     data = []
+
+    def _fk_cpp(th):
+        return chain.forward_kinematics(th)
+
+    @torch.compile(backend='eager')
+    def _fk_torch_compile(th):
+        return chain.forward_kinematics_py(th)
+
+    method_names = ['fk_cpp', 'fk_torch_compile']
+    methods = [_fk_cpp, _fk_torch_compile]
 
     for chain, name in zip(chains, names):
         for device in devices:
             for dtype in dtypes:
                 for batch_size in batch_sizes:
-                    chain = chain.to(dtype=dtype, device=device)
-                    th = torch.zeros(batch_size, chain.n_joints).to(dtype=dtype, device=device)
+                    for method_name, method in zip(method_names, methods):
+                        chain = chain.to(dtype=dtype, device=device)
+                        th = torch.zeros(batch_size, chain.n_joints).to(dtype=dtype, device=device)
 
-                    dt = timeit.timeit(lambda: chain.forward_kinematics(th), number=number)
-                    data.append([name, device, dtype, batch_size, dt / number])
-                    print(f"{name=} {device=} {dtype=} {batch_size=} {dt / number:.4f}")
+                        dt = timeit.timeit(lambda: method(th), number=number)
+                        data.append([name, device, dtype, batch_size, dt / number])
+                        print(f"{method_name} {name=} {device=} {dtype=} {batch_size=} {dt / number:.4f}")
 
     # pickle the data for visualization in jupyter notebook
     import pickle
