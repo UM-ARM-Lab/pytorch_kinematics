@@ -405,7 +405,7 @@ class Transform3d:
         if normals.dim() not in [2, 3]:
             msg = "Expected normals to have dim = 2 or dim = 3: got shape %r"
             raise ValueError(msg % (normals.shape,))
-        mat = self._get_matrix_inverse()[:, :3, :3]
+        mat = self.inverse().get_matrix()[:, :3, :3]
         normals_out = _broadcast_bmm(normals, mat)
 
         # This doesn't pass unit tests. TODO investigate further
@@ -435,7 +435,7 @@ class Transform3d:
         if shape_operators.dim() not in [3, 4]:
             msg = "Expected shape_operators to have dim = 3 or dim = 4: got shape %r"
             raise ValueError(msg % (shape_operators.shape,))
-        mat = self._get_matrix_inverse()[:, :3, :3]
+        mat = self.inverse().get_matrix()[:, :3, :3]
         shape_operators_out = _broadcast_bmm(mat.permute(0, 2, 1), _broadcast_bmm(shape_operators, mat))
 
         # When transform is (1, 4, 4) and shape_operator is (P, 3, 3) return
