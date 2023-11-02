@@ -406,7 +406,7 @@ class Transform3d:
             msg = "Expected normals to have dim = 2 or dim = 3: got shape %r"
             raise ValueError(msg % (normals.shape,))
         mat = self._get_matrix_inverse()[:, :3, :3]
-        normals_out = _broadcast_bmm(normals, mat.inverse())
+        normals_out = _broadcast_bmm(normals, mat)
 
         # This doesn't pass unit tests. TODO investigate further
         # if self._lu is None:
