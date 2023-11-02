@@ -281,44 +281,7 @@ class Chain:
     def get_frame_indices(self, *frame_names):
         return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long,
                             device=self.device)
-
     def forward_kinematics(self, th, frame_indices: Optional = None):
-        """
-        Compute forward kinematics.
-
-        Args:
-            th: A dict, list, numpy array, or torch tensor of ALL joints values. Possibly batched.
-               the fastest thing to use is a torch tensor, all other types get converted to that.
-               If any joint values are missing, an exception will be thrown.
-            frame_indices: A list of frame indices to compute forward kinematics for. If None, all frames are computed.
-
-        Returns:
-            A dict of frame names and their corresponding Transform3d objects.
-        """
-        if frame_indices is None:
-            frame_indices = self.get_all_frame_indices()
-
-        th = self.ensure_tensor(th)
-        th = torch.atleast_2d(th)
-
-        import zpk_cpp
-        frame_transforms = zpk_cpp.fk(
-            frame_indices,
-            self.axes,
-            th,
-            self.parents_indices,
-            self.joint_type_indices,
-            self.joint_indices,
-            self.joint_offsets,
-            self.link_offsets
-        )
-
-        frame_names_and_transform3ds = {self.idx_to_frame[frame_idx]: tf.Transform3d(matrix=transform) for
-                                        frame_idx, transform in frame_transforms.items()}
-
-        return frame_names_and_transform3ds
-
-    def forward_kinematics_py(self, th, frame_indices: Optional = None):
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
 

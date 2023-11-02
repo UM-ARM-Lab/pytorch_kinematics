@@ -4,7 +4,6 @@ import torch
 
 from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix, axis_angle_to_matrix, \
     pos_rot_to_matrix, matrix_to_pos_rot, random_rotations
-import zpk_cpp
 
 
 def test_axis_angle_to_matrix_perf():

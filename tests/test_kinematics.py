@@ -255,34 +255,9 @@ def test_mjcf_slide_joint_parsing():
 
 
 def test_fk_val():
-    dtype = torch.float64
-    d = "cuda" if torch.cuda.is_available() else "cpu"
-
     chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read())
-    chain = chain.to(dtype=torch.float64, device=d)
-
-    th = torch.rand(1000, chain.n_joints, dtype=dtype, device=d)
-
-    def _fk_no_compile():
-        return chain.forward_kinematics_py(th)
-
-    @torch.compile(backend='inductor')
-    def _fk_compile():
-        return chain.forward_kinematics_py(th)
-
-    from timeit import timeit
-
-    # warmup
-    _fk_no_compile()
-    _fk_compile()
-
-    number = 10
-    ms_no_compile = timeit(_fk_no_compile, number=number) / number * 1000
-    print(f"elapsed {ms_no_compile:.1f}ms for no compile")
-    ms_compile = timeit(_fk_compile, number=number) / number * 1000
-    print(f"elapsed {ms_compile:.1f}ms for compile")
-
-    ret = chain.forward_kinematics_py(th)
+    chain = chain.to(dtype=torch.float64)
+    ret = chain.forward_kinematics(torch.zeros([1000, chain.n_joints], dtype=torch.float64))
     tg = ret['drive45']
     pos, rot = quat_pos_from_transform3d(tg)
     torch.set_printoptions(precision=6, sci_mode=False)
