@@ -2,6 +2,8 @@ import torch
 
 import pytorch_kinematics.transforms as tf
 from . import jacobian
+from .frame import Joint
+from copy import deepcopy
 
 
 def ensure_2d_tensor(th, dtype, device):
@@ -221,7 +223,11 @@ class SerialChain(Chain):
         if root_frame_name == "":
             super(SerialChain, self).__init__(chain._root, **kwargs)
         else:
-            super(SerialChain, self).__init__(chain.find_frame(root_frame_name), **kwargs)
+            # if it does not start from the actual root, then we should not consider the joint 
+            # before the first link
+            new_root = deepcopy(chain.find_frame(root_frame_name))
+            new_root.joint = Joint()
+            super(SerialChain, self).__init__(new_root, **kwargs)
             if self._root is None:
                 raise ValueError("Invalid root frame name %s." % root_frame_name)
         self._serial_frames = [self._root] + self._generate_serial_chain_recurse(self._root, end_frame_name)
