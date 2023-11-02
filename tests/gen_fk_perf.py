@@ -18,7 +18,7 @@ def main():
     ]
     names = ['val', 'val_serial', 'kuka_iiwa']
 
-    devices = ['cpu', 'cuda']
+    devices = ['cuda', 'cpu']
     dtypes = [torch.float32, torch.float64]
     batch_sizes = [1, 10, 100, 1_000, 10_000, 100_000]
     number = 100
@@ -38,9 +38,9 @@ def main():
     methods = [_fk_cpp, _fk_torch_compile]
 
     for chain, name in zip(chains, names):
-        for device in devices:
-            for dtype in dtypes:
-                for batch_size in batch_sizes:
+        for dtype in dtypes:
+            for batch_size in batch_sizes:
+                for device in devices:
                     for method_name, method in zip(method_names, methods):
                         chain = chain.to(dtype=dtype, device=device)
                         th = torch.zeros(batch_size, chain.n_joints).to(dtype=dtype, device=device)
