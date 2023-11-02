@@ -266,7 +266,7 @@ def test_fk_val():
     def _fk_no_compile():
         return chain.forward_kinematics_py(th)
 
-    @torch.compile(backend='inductor')
+    @torch.compile(mode='reduce-overhead')
     def _fk_compile():
         return chain.forward_kinematics_py(th)
 

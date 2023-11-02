@@ -30,7 +30,7 @@ def main():
     def _fk_cpp(th):
         return chain.forward_kinematics(th)
 
-    @torch.compile(backend='eager')
+    @torch.compile(mode='reduce-overhead')
     def _fk_torch_compile(th):
         return chain.forward_kinematics_py(th)
 
