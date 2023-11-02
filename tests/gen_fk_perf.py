@@ -47,7 +47,7 @@ def main():
 
                         dt = timeit.timeit(lambda: method(th), number=number)
                         data.append([name, device, dtype, batch_size, dt / number])
-                        print(f"{method_name} {name=} {device=} {dtype=} {batch_size=} {dt / number:.4f}")
+                        print(f"{method_name:20s} {name=} {device=} {dtype=} {batch_size=:8d} {dt / number:.4f}")
 
     # pickle the data for visualization in jupyter notebook
     import pickle
