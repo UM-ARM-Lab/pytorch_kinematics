@@ -27,16 +27,9 @@ def test_fk_mjcf():
     chain = chain.to(dtype=torch.float64)
     print(chain)
     print(chain.get_joint_parameter_names())
-    th = {
-        'hip_1':   1.0,
-        'ankle_1': 1,
-        'hip_2':   0.0,
-        'ankle_2': 0.0,
-        'hip_3':   0.0,
-        'ankle_3': 0.0,
-        'hip_4':   0.0,
-        'ankle_4': 0.0,
-    }
+
+    th = {joint: 0.0 for joint in chain.get_joint_parameter_names()}
+    th.update({'hip_1': 1.0, 'ankle_1': 1})
     ret = chain.forward_kinematics(th)
     tg = ret['aux_1']
     pos, rot = quat_pos_from_transform3d(tg)
@@ -173,12 +166,7 @@ def test_fk_simple_arm():
     assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=torch.float64))
 
     N = 100
-    ret = chain.forward_kinematics({
-        'arm_shoulder_pan_joint': torch.rand(N),
-        'arm_elbow_pan_joint':    torch.rand(N),
-        'arm_wrist_lift_joint':   torch.rand(N),
-        'arm_wrist_roll_joint':   torch.rand(N),
-    })
+    ret = chain.forward_kinematics({k: torch.rand(N) for k in chain.get_joint_parameter_names()})
     tg = ret['arm_wrist_roll']
     assert list(tg.get_matrix().shape) == [N, 4, 4]
 

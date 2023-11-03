@@ -4,10 +4,10 @@ from .rotation_conversions import (
     axis_and_angle_to_matrix,
     axis_angle_to_quaternion,
     euler_angles_to_matrix,
+    matrix_to_axis_angle,
     matrix_to_euler_angles,
     matrix_to_quaternion,
     matrix_to_rotation_6d,
-    matrix_to_axis_angle,
     quaternion_apply,
     quaternion_invert,
     quaternion_multiply,
@@ -18,8 +18,10 @@ from .rotation_conversions import (
     random_rotations,
     rotation_6d_to_matrix,
     standardize_quaternion,
+    tensor_axis_and_angle_to_matrix,
+    tensor_axis_and_d_to_pris_matrix,
+    wxyz_to_xyzw,
     xyzw_to_wxyz,
-    wxyz_to_xyzw
 )
 from .so3 import (
     so3_exp_map,

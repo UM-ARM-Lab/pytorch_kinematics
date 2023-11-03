@@ -452,6 +452,7 @@ def quaternion_apply(quaternion, point):
 
 def tensor_axis_and_d_to_pris_matrix(axis, d):
     """
+    Creates a 4x4 matrix that represents a translation along an axis of a distance d
     Works with any number of batch dimensions.
 
     Args:
@@ -471,6 +472,7 @@ def tensor_axis_and_d_to_pris_matrix(axis, d):
 
 def tensor_axis_and_angle_to_matrix(axis, theta):
     """
+    Creates a 4x4 matrix that represents a rotation around an axis by an angle theta.
     Works with any number of batch dimensions.
 
     Args:
