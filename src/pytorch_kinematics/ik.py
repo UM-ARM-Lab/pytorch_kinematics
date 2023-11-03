@@ -43,8 +43,7 @@ class IKSolution:
         this_masked = _r ^ self.remaining
         return this_masked
 
-    def update(self, q: torch.tensor, err: torch.tensor,
-               use_remaining=False, keep_mask=None):
+    def update(self, q: torch.tensor, err: torch.tensor, use_remaining=False, keep_mask=None):
         err = err.reshape(-1, self.num_retries, 6)
         err_pos = err[..., :3].norm(dim=-1)
         err_rot = err[..., 3:].norm(dim=-1)
@@ -234,6 +233,31 @@ def apply_mask(mask, *args):
 
 class PseudoInverseIK(InverseKinematics):
     def solve(self, target_poses: Transform3d) -> IKSolution:
+        def apply_mask_to_all(mask):
+            nonlocal q, target_pos, target_rot_rpy, improvement
+
+            q = q.reshape(-1, self.num_retries, self.dof)
+            q = q[mask]
+            q = q.reshape(-1, self.dof)
+
+            target_pos = target_pos[mask]
+            target_rot_rpy = target_rot_rpy[mask]
+
+            if improvement is not None:
+                improvement = improvement[mask]
+            if self.err_prev is not None:
+                self.err_prev = self.err_prev.reshape(-1, self.num_retries)
+                self.err_prev = self.err_prev[mask]
+                self.err_prev = self.err_prev.reshape(-1)
+                if self.past_improvement is not None:
+                    self.past_improvement = self.past_improvement[mask]
+            self.err = self.err.reshape(-1, self.num_retries)
+            self.err = self.err[mask]
+            self.err = self.err.reshape(-1)
+            self.err_all = self.err_all.reshape(-1, self.num_retries, 6)
+            self.err_all = self.err_all[mask]
+            self.err_all = self.err_all.reshape(-1, 6)
+
         target = target_poses.get_matrix()
 
         M = target.shape[0]
@@ -269,7 +293,6 @@ class PseudoInverseIK(InverseKinematics):
                 if q.numel() == 0:
                     break
                 # compute forward kinematics
-                # fk = self.chain.forward_kinematics(q)
                 # N x 6 x DOF
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
                 # unflatten to broadcast with goal
@@ -300,31 +323,6 @@ class PseudoInverseIK(InverseKinematics):
                 self.err_prev = self.err
                 self.err_all = dx.squeeze()
                 self.err = self.err_all.norm(dim=-1)
-
-                def apply_mask_to_all(mask):
-                    nonlocal q, target_pos, target_rot_rpy, improvement
-                    q, target_pos, target_rot_rpy = apply_mask(mask,
-                                                               q.reshape(-1,
-                                                                         self.num_retries,
-                                                                         self.dof),
-                                                               target_pos,
-                                                               target_rot_rpy,
-                                                               )
-                    q = q.reshape(-1, self.dof)
-                    if improvement is not None:
-                        improvement = improvement[mask]
-                    if self.err_prev is not None:
-                        self.err_prev = self.err_prev.reshape(-1, self.num_retries)
-                        self.err_prev = self.err_prev[mask]
-                        self.err_prev = self.err_prev.reshape(-1)
-                        if self.past_improvement is not None:
-                            self.past_improvement = self.past_improvement[mask]
-                    self.err = self.err.reshape(-1, self.num_retries)
-                    self.err = self.err[mask]
-                    self.err = self.err.reshape(-1)
-                    self.err_all = self.err_all.reshape(-1, self.num_retries, 6)
-                    self.err_all = self.err_all[mask]
-                    self.err_all = self.err_all.reshape(-1, 6)
 
                 if improvement is None and self.err_prev is not None:
                     improvement = self.err_prev - self.err
