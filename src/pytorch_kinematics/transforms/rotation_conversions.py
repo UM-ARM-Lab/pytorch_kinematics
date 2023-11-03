@@ -462,9 +462,10 @@ def tensor_axis_and_d_to_pris_matrix(axis, d):
 
     """
     batch_axes = axis.shape[:-1]
-    mat44 = torch.eye(4).to(axis).repeat(*batch_axes, 1, 1)
-    pos = axis * d[..., None]
-    mat44[..., :3, 3] = pos
+    mat33 = torch.eye(3).to(axis).expand(*batch_axes, 3, 3)
+    pos = axis * d.unsqueeze(-1)
+    mat44 = torch.cat((mat33, pos.unsqueeze(-1)), -1)
+    mat44 = torch.cat((mat44, torch.tensor([0.0, 0.0, 0.0, 1.0]).expand(*batch_axes, 1, 4).to(axis)), -2)
     return mat44
 
 
