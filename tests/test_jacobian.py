@@ -1,4 +1,5 @@
 import math
+from timeit import timeit
 import os
 from timeit import default_timer as timer
 
@@ -193,27 +194,28 @@ def test_comparison_to_autograd():
 
 
 def test_chain_jacobian():
-    N = 100
-    chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "val.xml")).read())
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    chain.to(device=device)
+    ee_link_sets = [
+        ["left_tool"],
+        ["left_tool", "right_tool"],
+    ]
+    for ee_links in ee_link_sets:
+        N = 100
+        chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read(), ee_links=ee_links)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        chain.to(device=device)
 
-    th = torch.randn(N, 20)
+        th = torch.randn(N, 20, device=device)
 
-    # warm-start
-    for _ in range(5):
-        J = chain.jacobian(th)
+        # warm-start
+        for _ in range(5):
+            J = chain.jacobian(th)
 
-    # timeit
-    from timeit import timeit
+        def _jac():
+            return chain.jacobian(th)
 
-    number = 100
-
-    def _jac():
-        return chain.jacobian(th)
-
-    dt = timeit(_jac, number=number) / number * 1000
-    print(f"chain.jacobian took {dt:.1f}ms")
+        number = 100
+        dt = timeit(_jac, number=number) / number * 1000
+        print(f"chain.jacobian for {chain.ee_links} took {dt:.1f}ms")
 
 
 if __name__ == "__main__":
