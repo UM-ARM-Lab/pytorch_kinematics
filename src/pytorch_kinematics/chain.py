@@ -279,8 +279,8 @@ class Chain:
 
     @lru_cache
     def get_frame_indices(self, *frame_names):
-        return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long,
-                            device=self.device)
+        return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long, device=self.device)
+
     def forward_kinematics(self, th, frame_indices: Optional = None):
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()

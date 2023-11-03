@@ -115,6 +115,7 @@ def test_urdf_serial():
     print(chain)
     print(chain.get_joint_parameter_names())
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
+
     ret = chain.forward_kinematics(th, end_only=False)
     tg = ret['lbr_iiwa_link_7']
     pos, rot = quat_pos_from_transform3d(tg)
@@ -126,7 +127,13 @@ def test_urdf_serial():
     dtype = torch.float64
 
     th_batch = torch.rand(N, len(chain.get_joint_parameter_names()), dtype=dtype, device=d)
+
     chain = chain.to(dtype=dtype, device=d)
+
+    # NOTE: Warmstart since pytorch can be slow the first time you run it
+    #  this has to be done after you move it to the GPU. Otherwise the timing isn't representative.
+    for _ in range(5):
+        ret = chain.forward_kinematics(th)
 
     number = 10
 
