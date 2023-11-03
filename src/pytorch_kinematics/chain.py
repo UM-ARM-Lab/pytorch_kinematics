@@ -495,14 +495,11 @@ class Chain:
             cur_transform = cur_frame_transform @ cur_transform
 
         # currently j_eef is Jacobian in end-effector frame, convert to base/world frame
-        from time import perf_counter
-        t0 = perf_counter()
         if isinstance(self, SerialChain):
             ee_transform = self.forward_kinematics(th)
         else:
             fk_dict = self.forward_kinematics(th)
             ee_transform = fk_dict[base_to_ee_frames[-1].link.name]
-        print(f'ft inside calc_jacobian dt: {perf_counter() - t0:.4f}')
         pose = ee_transform.get_matrix()
         rotation = pose[:, :3, :3]
         j_tr = torch.zeros((N, 6, 6), dtype=self.dtype, device=self.device)

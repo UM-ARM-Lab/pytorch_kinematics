@@ -192,6 +192,30 @@ def test_comparison_to_autograd():
         pass
 
 
+def test_chain_jacobian():
+    N = 100
+    chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "val.xml")).read())
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    chain.to(device=device)
+
+    th = torch.randn(N, 20)
+
+    # warm-start
+    for _ in range(5):
+        J = chain.jacobian(th)
+
+    # timeit
+    from timeit import timeit
+
+    number = 100
+
+    def _jac():
+        return chain.jacobian(th)
+
+    dt = timeit(_jac, number=number) / number * 1000
+    print(f"chain.jacobian took {dt:.1f}ms")
+
+
 if __name__ == "__main__":
     test_correctness()
     test_parallel()
