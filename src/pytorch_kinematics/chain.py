@@ -1,6 +1,6 @@
 from functools import lru_cache
-from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_angle_to_matrix
-from pytorch_kinematics.transforms.rotation_conversions import tensor_axis_and_d_to_pris_matrix
+from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix
+from pytorch_kinematics.transforms.rotation_conversions import axis_and_d_to_pris_matrix
 from typing import Optional, Sequence
 
 import numpy as np
@@ -294,8 +294,8 @@ class Chain:
         # compute all joint transforms at once first
         # in order to handle multiple joint types without branching, we create all possible transforms
         # for all joint types and then select the appropriate one for each joint.
-        rev_jnt_transform = tensor_axis_and_angle_to_matrix(axes_expanded, th)
-        pris_jnt_transform = tensor_axis_and_d_to_pris_matrix(axes_expanded, th)
+        rev_jnt_transform = axis_and_angle_to_matrix(axes_expanded, th)
+        pris_jnt_transform = axis_and_d_to_pris_matrix(axes_expanded, th)
 
         frame_transforms = {}
         b = th.shape[0]
@@ -456,7 +456,7 @@ class SerialChain(Chain):
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
-        frame_indices, th = self.convert_serial_inputs_to_chain_inputs(end_only, th)
+        frame_indices, th = self.convert_serial_inputs_to_chain_inputs(th, end_only)
 
         mat = super().forward_kinematics(th, frame_indices)
 
@@ -465,7 +465,7 @@ class SerialChain(Chain):
         else:
             return mat
 
-    def convert_serial_inputs_to_chain_inputs(self, end_only, th):
+    def convert_serial_inputs_to_chain_inputs(self, th, end_only: bool):
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
         else:

@@ -3,8 +3,6 @@ from . import frame
 from . import chain
 import torch
 import pytorch_kinematics.transforms as tf
-# has better RPY to quaternion transformation
-import transformations as tf2
 
 JOINT_TYPE_MAP = {'revolute':   'revolute',
                   'continuous': 'revolute',
@@ -16,7 +14,7 @@ def _convert_transform(origin):
     if origin is None:
         return tf.Transform3d()
     else:
-        return tf.Transform3d(rot=torch.tensor(tf2.quaternion_from_euler(*origin.rpy, "sxyz"), dtype=torch.float32),
+        return tf.Transform3d(rot=torch.tensor(tf.quaternion_from_euler(*origin.rpy, "sxyz"), dtype=torch.float32),
                               pos=origin.xyz)
 
 

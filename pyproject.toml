@@ -45,7 +45,6 @@ dependencies = [
     'numpy',
     'pyyaml',
     'torch',
-    'transformations',
 ]
 
 [project.optional-dependencies]

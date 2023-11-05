@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
+from pytorch_kinematics.transforms.perturbation import sample_perturbations
 from .rotation_conversions import (
-    axis_and_angle_to_matrix,
     axis_angle_to_quaternion,
     euler_angles_to_matrix,
     matrix_to_axis_angle,
@@ -13,13 +13,14 @@ from .rotation_conversions import (
     quaternion_multiply,
     quaternion_raw_multiply,
     quaternion_to_matrix,
+    quaternion_from_euler,
     random_quaternions,
     random_rotation,
     random_rotations,
     rotation_6d_to_matrix,
     standardize_quaternion,
-    tensor_axis_and_angle_to_matrix,
-    tensor_axis_and_d_to_pris_matrix,
+    axis_and_angle_to_matrix,
+    axis_and_d_to_pris_matrix,
     wxyz_to_xyzw,
     xyzw_to_wxyz,
 )
@@ -30,6 +31,5 @@ from .so3 import (
     so3_rotation_angle,
 )
 from .transform3d import Rotate, RotateAxisAngle, Scale, Transform3d, Translate
-from pytorch_kinematics.transforms.perturbation import sample_perturbations
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]
