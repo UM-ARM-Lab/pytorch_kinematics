@@ -81,7 +81,7 @@ def gaussian_around_config(config: torch.Tensor, std: float) -> Callable[[int], 
 
 
 class LineSearch:
-    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx):
+    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx, problem_remaining=None):
         raise NotImplementedError()
 
 
@@ -92,13 +92,18 @@ class BacktrackingLineSearch(LineSearch):
         self.max_iterations = max_iterations
         self.sufficient_decrease = sufficient_decrease
 
-    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx):
+    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx, problem_remaining=None):
         N = target_pos.shape[0]
         NM = q.shape[0]
         M = NM // N
         lr = torch.ones(NM, device=q.device) * self.initial_lr
         err = initial_dx.squeeze().norm(dim=-1)
-        remaining = torch.ones(NM, dtype=torch.bool, device=q.device)
+        if problem_remaining is None:
+            problem_remaining = torch.ones(N, dtype=torch.bool, device=q.device)
+        remaining = torch.ones((N, M), dtype=torch.bool, device=q.device)
+        # don't care about the ones that are no longer remaining
+        remaining[~problem_remaining] = False
+        remaining = remaining.reshape(-1)
         for i in range(self.max_iterations):
             if not remaining.any():
                 break
@@ -287,7 +292,7 @@ class PseudoInverseIK(InverseKinematics):
                 with torch.no_grad():
                     if self.line_search is not None:
                         lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_rot_rpy,
-                                                                          dx)
+                                                                          dx, problem_remaining=sol.remaining)
                         lr = lr.unsqueeze(1)
                     else:
                         lr = self.lr

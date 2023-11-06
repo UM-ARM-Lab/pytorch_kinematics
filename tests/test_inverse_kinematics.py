@@ -37,21 +37,13 @@ def test_jacobian_follower():
     chain = pk.build_serial_chain_from_urdf(open(full_urdf).read(), "lbr_iiwa_link_7")
     chain = chain.to(device=device)
 
-    joints_high = torch.tensor([170, 120, 170, 120, 170, 120, 175], device=device)
-    joint_limits = torch.stack((-joints_high, joints_high), dim=-1) * math.pi / 180.0
-    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=1000, joint_limits=joint_limits,
-                            early_stopping_any_converged=True,
-                            early_stopping_no_improvement=True,
-                            # line_search=pk.BacktrackingLineSearch(),
-                            lr=0.5)
-
     # robot frame
     pos = torch.tensor([0.0, 0.0, 0.0], device=device)
     rot = torch.tensor([0.0, 0.0, 0.0], device=device)
     rob_tf = pk.Transform3d(pos=pos, rot=rot, device=device)
 
     # world frame goal
-    M = 10
+    M = 100
     # generate random goal positions
     goal_pos = torch.rand(M, 3, device=device) * 0.5
     # also generate random goal rotations
@@ -61,12 +53,22 @@ def test_jacobian_follower():
     # transform to robot frame
     goal_in_rob_frame_tf = rob_tf.inverse().compose(goal_tf)
 
+    joints_high = torch.tensor([170, 120, 170, 120, 170, 120, 175], device=device)
+    joint_limits = torch.stack((-joints_high, joints_high), dim=-1) * math.pi / 180.0
+    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=100, joint_limits=joint_limits,
+                            early_stopping_any_converged=True,
+                            early_stopping_no_improvement=True,
+                            # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
+                            lr=0.2)
+
     # do IK
     timer_start = timer()
     sol = ik.solve(goal_in_rob_frame_tf)
     timer_end = timer()
     print("IK took %f seconds" % (timer_end - timer_start))
     print("IK converged number: %d / %d" % (sol.converged.sum(), sol.converged.numel()))
+    print("IK took %d iterations" % sol.iterations)
+    print("IK solved %d / %d goals" % (sol.converged_any.sum(), M))
 
     # visualize everything
     if visualize:
