@@ -85,7 +85,7 @@ class LineSearch:
 
 
 class BacktrackingLineSearch(LineSearch):
-    def __init__(self, max_lr=2.0, decrease_factor=0.5, max_iterations=5, sufficient_decrease=0.01):
+    def __init__(self, max_lr=1.0, decrease_factor=0.5, max_iterations=5, sufficient_decrease=0.01):
         self.initial_lr = max_lr
         self.decrease_factor = decrease_factor
         self.max_iterations = max_iterations
@@ -97,7 +97,10 @@ class BacktrackingLineSearch(LineSearch):
         M = NM // N
         lr = torch.ones(NM, device=q.device) * self.initial_lr
         err = initial_dx.squeeze().norm(dim=-1)
+        remaining = torch.ones(NM, dtype=torch.bool, device=q.device)
         for i in range(self.max_iterations):
+            if not remaining.any():
+                break
             # try stepping with this learning rate
             q_new = q + lr.unsqueeze(1) * dq
             # evaluate the error
@@ -109,9 +112,9 @@ class BacktrackingLineSearch(LineSearch):
             improvement = err - err_new
             improved = improvement > self.sufficient_decrease
             # if it's better, we're done for those
-            # TODO mask out the ones that are better and stop considering them
             # if it's not better, reduce the learning rate
             lr[~improved] *= self.decrease_factor
+            remaining = remaining & ~improved
 
         improvement = improvement.reshape(-1, M)
         improvement = improvement.mean(dim=1)
