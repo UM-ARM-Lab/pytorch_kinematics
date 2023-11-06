@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt, cm as cm
 
 class IKSolution:
     def __init__(self, dof, num_problems, num_retries, pos_tolerance, rot_tolerance, device="cpu"):
+        self.iterations = 0
         self.device = device
         self.num_problems = num_problems
         self.num_retries = num_retries
@@ -264,6 +265,7 @@ class PseudoInverseIK(InverseKinematics):
                 # early termination if we're out of problems to solve
                 if not sol.remaining.any():
                     break
+                sol.iterations += 1
                 # compute forward kinematics
                 # N x 6 x DOF
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
