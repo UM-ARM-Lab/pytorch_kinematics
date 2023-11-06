@@ -42,7 +42,7 @@ def test_jacobian_follower():
     ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=1000, joint_limits=joint_limits,
                             early_stopping_any_converged=True,
                             early_stopping_no_improvement=True,
-                            line_search=pk.BacktrackingLineSearch(),
+                            # line_search=pk.BacktrackingLineSearch(),
                             lr=0.5)
 
     # robot frame
