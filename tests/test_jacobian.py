@@ -127,6 +127,81 @@ def test_jacobian_at_different_links():
     assert torch.allclose(J, jac_des, atol=1e-5)
 
 
+def get_jacobian_finite_difference(chain, th):
+    """
+    Get the jacobian of the chain using finite differencing
+    :param chain: SerialChain
+    :param th: torch.tensor of shape (batch_size, num_dofs)
+    :return: torch.tensor of shape (batch_size, 6, num_dofs)
+
+    # TODO this can be extended to non-serial chains with locations and link indices for testing
+    """
+
+    # estimate jacobian with finite differencing
+    # th should be
+    eps = 1e-3
+    J = []
+    for i in range(th.shape[1]):
+        # use central difference scheme
+        th_plus = th.clone()
+        th_plus[:, i] += eps
+        th_minus = th.clone()
+        th_minus[:, i] -= eps
+
+        # Do FK
+        mat_plus = chain.forward_kinematics(th_plus).get_matrix()
+        mat_minus = chain.forward_kinematics(th_minus).get_matrix()
+
+        # get position finite difference
+        position_J = (mat_plus[:, :3, 3] - mat_minus[:, :3, 3]) / (2 * eps)
+
+        # get rotation - slightly more involved
+        # rotation matrix diff
+        diff_ori = mat_plus[:, :3, :3] @ mat_minus[:, :3, :3].permute(0, 2, 1)
+        # ensure symmetric
+        diff_ori = (diff_ori - diff_ori.permute(0, 2, 1)) / 2
+
+        # get corresponding angular velocity
+        omega = torch.stack([diff_ori[:, 2, 1], diff_ori[:, 0, 2], diff_ori[:, 1, 0]], dim=1)
+        ori_J = omega / (2 * eps)
+
+        J_col = torch.cat([position_J, ori_J], dim=1)
+        J.append(J_col)
+
+    return torch.stack(J, dim=2)
+
+
+def test_jacobian_partial_th():
+    chain_right = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "victor_mallet.urdf")).read(),
+                                            'victor_right_arm_link_7')
+    chain_left = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "victor_mallet.urdf")).read(),
+                                            'victor_left_arm_link_7')
+    th = -0.1 * torch.ones(1, 14)
+
+    J_right_test = get_jacobian_finite_difference(chain_right, th)
+    J_left_test = get_jacobian_finite_difference(chain_left, th)
+
+    # test with left
+    J_right_serial = chain_right.jacobian(th[:, 7:])
+    J_left_serial = chain_left.jacobian(th[:, :7])
+
+    # try normal chain and use appropriate link indices
+    chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "victor_mallet.urdf")).read())
+    link_indices = torch.tensor([chain.frame_to_idx['victor_left_arm_link_7'],
+                                 chain.frame_to_idx['victor_right_arm_link_7']])
+
+    J_non_serial = chain.jacobian(th.expand(2, 14), link_indices=link_indices)
+
+    # using slacker tolerance due to finite differencing
+    # test serial
+    assert torch.allclose(J_right_serial, J_right_test, atol=1e-4)
+    assert torch.allclose(J_left_serial, J_left_test, atol=1e-4)
+
+    # test non serial
+    assert torch.allclose(J_non_serial[0], J_left_test.squeeze(0), atol=1e-4)
+    assert torch.allclose(J_non_serial[1], J_right_test.squeeze(0), atol=1e-4)
+
+
 def test_jacobian_y_joint_axis():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
     th = torch.tensor([0.])
@@ -260,3 +335,4 @@ if __name__ == "__main__":
     test_jacobian_at_different_loc_than_ee()
     test_jacobian_at_different_links()
     test_comparison_to_autograd()
+    test_jacobian_partial_th()

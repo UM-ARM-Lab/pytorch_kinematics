@@ -123,12 +123,29 @@ class Chain:
         self.joint_type_indices = torch.tensor(self.joint_type_indices)
         self.joint_indices = torch.tensor(self.joint_indices)
         # We need to use a dict because torch.compile doesn't list lists of tensors
+
         # pad parent indices with -1 so they are all the same length
-        max_len = max([len(p) for p in self.parents_indices])
-        self.parents_indices = [torch.tensor(p + [-1] * (max_len - len(p)),
-                                             dtype=torch.long, device=self.device) for p in self.parents_indices]
-        self.parents_indices = torch.stack(self.parents_indices, dim=0)  # will be num_frames x max tree depth
-        self.max_kinematic_tree_depth = self.parents_indices.shape[1]
+
+        # also get parent indices excluding fixed joints - useful for jacobian calcualtion
+        self.non_fixed_parents_indices = []
+        for parent_indices in self.parents_indices:
+            non_fixed_parent_idx = []
+            for parent_idx in parent_indices:
+                if self.find_frame(self.idx_to_frame[parent_idx]).joint.joint_type != 'fixed':
+                    non_fixed_parent_idx.append(parent_idx)
+            self.non_fixed_parents_indices.append(non_fixed_parent_idx)
+
+        # convert to tensors
+        self.parents_indices = [torch.tensor(p, dtype=torch.long, device=self.device) for p in self.parents_indices]
+
+        # pad non fixed parent indices with -1 so they are all fixed
+        max_len = max([len(p) for p in self.non_fixed_parents_indices])
+        self.non_fixed_parents_indices = [torch.tensor(p + [-1] * (max_len - len(p)),
+                                                       dtype=torch.long,
+                                                       device=self.device) for p in self.non_fixed_parents_indices]
+
+        self.non_fixed_parents_indices = torch.stack(self.non_fixed_parents_indices, dim=0)
+        self.max_kinematic_tree_depth = self.non_fixed_parents_indices.shape[1]
 
     def to(self, dtype=None, device=None):
         if dtype is not None:
@@ -138,7 +155,8 @@ class Chain:
         self._root = self._root.to(dtype=self.dtype, device=self.device)
 
         self.identity = self.identity.to(device=self.device, dtype=self.dtype)
-        self.parents_indices = self.parents_indices.to(dtype=torch.long, device=self.device)
+        self.parents_indices = [p.to(dtype=torch.long, device=self.device) for p in self.parents_indices]
+        self.non_fixed_parents_indices = self.non_fixed_parents_indices.to(dtype=torch.long, device=self.device)
         self.joint_type_indices = self.joint_type_indices.to(dtype=torch.long, device=self.device)
         self.joint_indices = self.joint_indices.to(dtype=torch.long, device=self.device)
         self.axes = self.axes.to(dtype=self.dtype, device=self.device)
@@ -309,8 +327,6 @@ class Chain:
 
             # iterate down the list and compose the transform
             for chain_idx in self.parents_indices[frame_idx.item()]:
-                if chain_idx.item() == -1:
-                    break
                 if chain_idx.item() in frame_transforms:
                     frame_transform = frame_transforms[chain_idx.item()]
                 else:
@@ -332,8 +348,6 @@ class Chain:
                     elif jnt_type == 2:
                         jnt_transform_i = pris_jnt_transform[:, jnt_idx]
                         frame_transform = frame_transform @ jnt_transform_i
-
-
 
             frame_transforms[frame_idx.item()] = frame_transform
 
@@ -483,8 +497,11 @@ class Chain:
         else:
             fk_dict = self.forward_kinematics(th)
 
-        # assemble transforms into a single multi-batch tensor
-        T = torch.stack([transform.get_matrix() for transform in fk_dict.values()], dim=0)  # num_links x N x 4 x 4
+        # assemble transforms into a single multi-batch tensor - should be in the order of the frames
+        T = []
+        for frame_idx, frame_name in self.idx_to_frame.items():
+            T.append(fk_dict[frame_name].get_matrix())
+        T = torch.stack(T, dim=0)  # num_links x N x 4 x 4
 
         # retrieve desired link-transform
         ee_transform = T[link_indices, N_range] @ cur_transform
@@ -492,43 +509,44 @@ class Chain:
 
         # compute jacobian in world frame
         jacobian = torch.zeros((N, 6, ndof), dtype=self.dtype, device=self.device)
-
-        # may need different cnt per link
-        cnt = torch.zeros(N, dtype=torch.long, device=self.device)
+        # TODO exclude fixed joints? saves for loop time
+        # construct a parent indices tensor which ommits fixed joints
+        # rather than incrementing count, some how we need to extract
         for d in range(self.max_kinematic_tree_depth):
             # Retrieve frame information
-            frame_idx = self.parents_indices[link_indices, d]
-            joint_idx = self.joint_indices[frame_idx]
+            frame_idx = self.non_fixed_parents_indices[link_indices, d]
             transform = T[frame_idx, N_range]
+            joint_idx = self.joint_indices[frame_idx]
             joint_axes = self.axes[joint_idx].expand(N, 3).unsqueeze(-1)
             joint_type = self.joint_type_indices[frame_idx].unsqueeze(-1)
 
-            # only do this if some joints are non-fixed
-            if torch.any(joint_type != Joint.TYPES.index('fixed')):
-                # compute jacobian as if revolute joint
-                joint_axes_world = (transform[:, :3, :3] @ joint_axes).squeeze(-1)
+            old_jacobian_col = jacobian[N_range, :, joint_idx].clone()
+            jacobian_col = jacobian[N_range, :, joint_idx].clone()
+            joint_axes_world = (transform[:, :3, :3] @ joint_axes).squeeze(-1)
+
+            # compute jacobian as if revolute joint
+            if torch.any(joint_type == Joint.TYPES.index('revolute')):
                 position_jacobian = torch.cross(joint_axes_world, tool_world - transform[:, :3, 3], dim=-1)
                 jac_column_revolute = torch.cat((position_jacobian, joint_axes_world), dim=-1)
-
-                # compute jacobian as if prismatic joint
-                jacobian_column_prismatic = torch.cat((joint_axes_world, torch.zeros_like(joint_axes_world)), dim=-1)
-
                 # Replace jacobian column with correct type
-                default_jacobian = jacobian[N_range, :, cnt]
                 jacobian_col = torch.where(joint_type == Joint.TYPES.index('revolute'),
                                            jac_column_revolute,
-                                           default_jacobian
+                                           jacobian_col
                                            )
+
+            # compute jacobian as if prismatic joint
+            if torch.any(joint_type == Joint.TYPES.index('prismatic')):
+                jacobian_column_prismatic = torch.cat((joint_axes_world,
+                                                       torch.zeros_like(joint_axes_world)), dim=-1)
                 jacobian_col = torch.where(joint_type == Joint.TYPES.index('prismatic'),
                                            jacobian_column_prismatic,
                                            jacobian_col
                                            )
 
-                # update jacobian but only if we are not at the desired frame_idx
-                jacobian[N_range, :, cnt] = torch.where(frame_idx.unsqueeze(-1) > -1, jacobian_col, default_jacobian)
-
-                # increment counter for non-fixed joints
-                cnt = torch.where(joint_type != Joint.TYPES.index('fixed'), cnt + 1, cnt)
+            # update jacobian but only if we are not at the desired frame_idx
+            jacobian[N_range, :, joint_idx] = torch.where(frame_idx.unsqueeze(-1) > -1,
+                                                          jacobian_col,
+                                                          old_jacobian_col)
 
             # break if have calculated for all desired links
             if torch.all(frame_idx < 0):
@@ -612,6 +630,8 @@ class SerialChain(Chain):
         # if link indices is None we assume the end-effector
         if link_indices is None:
             link_indices = self.get_frame_indices(self._serial_frames[-1].name).expand(N)
+
+        _, th = self._convert_serial_inputs_to_chain_inputs(False, th)
 
         return self.calc_jacobian(th, tool=locations, link_indices=link_indices)
 
