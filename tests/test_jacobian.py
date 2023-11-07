@@ -194,8 +194,8 @@ def test_jacobian_partial_th():
 
     # using slacker tolerance due to finite differencing
     # test serial
-    assert torch.allclose(J_right_serial, J_right_test, atol=1e-4)
-    assert torch.allclose(J_left_serial, J_left_test, atol=1e-4)
+    assert torch.allclose(J_right_serial, J_right_test[:, :, 7:], atol=1e-4)
+    assert torch.allclose(J_left_serial, J_left_test[:, :, :7], atol=1e-4)
 
     # test non serial
     assert torch.allclose(J_non_serial[0], J_left_test.squeeze(0), atol=1e-4)

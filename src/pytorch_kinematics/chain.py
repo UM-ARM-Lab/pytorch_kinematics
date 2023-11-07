@@ -631,13 +631,13 @@ class SerialChain(Chain):
         if link_indices is None:
             link_indices = self.get_frame_indices(self._serial_frames[-1].name).expand(N)
 
-        _, th = self._convert_serial_inputs_to_chain_inputs(False, th)
+        _, th, joint_indices = self._convert_serial_inputs_to_chain_inputs(False, th)
 
-        return self.calc_jacobian(th, tool=locations, link_indices=link_indices)
+        return self.calc_jacobian(th, tool=locations, link_indices=link_indices)[:, :, joint_indices]
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
-        frame_indices, th = self._convert_serial_inputs_to_chain_inputs(end_only, th)
+        frame_indices, th, _ = self._convert_serial_inputs_to_chain_inputs(end_only, th)
 
         mat = super().forward_kinematics(th, frame_indices)
 
@@ -654,6 +654,7 @@ class SerialChain(Chain):
         else:
             N = th.shape[0]
         th_size = get_th_size(th)
+        joint_indices = []
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
         else:
@@ -673,4 +674,7 @@ class SerialChain(Chain):
                 jnt_idx = self.joint_indices[k]
                 if frame.joint.joint_type != 'fixed':
                     th[:, jnt_idx] = partial_th_i
-        return frame_indices, th
+                joint_indices.append(jnt_idx)
+        else:
+            joint_indices = range(self.n_joints)
+        return frame_indices, th, joint_indices
