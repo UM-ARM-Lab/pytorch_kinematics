@@ -22,7 +22,7 @@ See `tests` for code samples; some are also shown here.
 If you use this package in your research, consider citing
 ```
 @software{Zhong_PyTorch_Kinematics_2023,
-author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin},
+author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin and Peter, Mitrano},
 doi = {10.5281/zenodo.7700588},
 month = {3},
 title = {{PyTorch Kinematics}},

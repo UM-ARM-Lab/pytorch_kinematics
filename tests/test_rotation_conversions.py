@@ -2,7 +2,7 @@ import timeit
 
 import torch
 
-from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix, axis_angle_to_matrix, \
+from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_33, axis_angle_to_matrix, \
     pos_rot_to_matrix, matrix_to_pos_rot, random_rotations
 
 
@@ -18,7 +18,7 @@ def test_axis_angle_to_matrix_perf():
     dt1 = timeit.timeit(lambda: axis_angle_to_matrix(axis_angle), number=number)
     print(f'Old method: {dt1:.5f}')
 
-    dt2 = timeit.timeit(lambda: axis_and_angle_to_matrix(axis=axis_1d, theta=theta), number=number)
+    dt2 = timeit.timeit(lambda: axis_and_angle_to_matrix_33(axis=axis_1d, theta=theta), number=number)
     print(f'New method: {dt2:.5f}')
 
 

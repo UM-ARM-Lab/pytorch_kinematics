@@ -1,6 +1,6 @@
 import math
-from timeit import timeit
 import os
+from timeit import timeit
 
 import torch
 
@@ -260,7 +260,35 @@ def test_fk_val():
     assert torch.allclose(pos, torch.tensor([-0.225692, 0.259045, 0.262139], dtype=torch.float64))
 
 
+def test_fk_partial_batched_dict():
+    # Test that you can pass in dict of batched joint configs for a subset of the joints
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read(), 'left_tool')
+    th = {
+        'joint56': torch.zeros([1000], dtype=torch.float64),
+        'joint57': torch.zeros([1000], dtype=torch.float64),
+        'joint41': torch.zeros([1000], dtype=torch.float64),
+        'joint42': torch.zeros([1000], dtype=torch.float64),
+        'joint43': torch.zeros([1000], dtype=torch.float64),
+        'joint44': torch.zeros([1000], dtype=torch.float64),
+        'joint45': torch.zeros([1000], dtype=torch.float64),
+        'joint46': torch.zeros([1000], dtype=torch.float64),
+        'joint47': torch.zeros([1000], dtype=torch.float64),
+    }
+    chain = chain.to(dtype=torch.float64)
+    tg = chain.forward_kinematics(th)
+
+
+def test_fk_partial_batched():
+    # Test that you can pass in dict of batched joint configs for a subset of the joints
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read(), 'left_tool')
+    th = torch.zeros([1000, 9], dtype=torch.float64)
+    chain = chain.to(dtype=torch.float64)
+    tg = chain.forward_kinematics(th)
+
+
 if __name__ == "__main__":
+    test_fk_partial_batched()
+    test_fk_partial_batched_dict()
     test_fk_val()
     test_sdf_serial_chain()
     test_urdf_serial()

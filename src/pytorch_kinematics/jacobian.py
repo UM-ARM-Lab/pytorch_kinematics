@@ -47,7 +47,7 @@ def calc_jacobian(serial_chain, th, tool=None):
         elif f.joint.joint_type == "prismatic":
             cnt += 1
             j_eef[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
-        cur_frame_transform = f.get_transform(th[:, -cnt].reshape(N, 1)).get_matrix()
+        cur_frame_transform = f.get_transform(th[:, -cnt]).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
 
     # currently j_eef is Jacobian in end-effector frame, convert to base/world frame

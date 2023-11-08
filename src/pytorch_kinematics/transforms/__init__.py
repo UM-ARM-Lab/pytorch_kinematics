@@ -19,7 +19,7 @@ from .rotation_conversions import (
     random_rotations,
     rotation_6d_to_matrix,
     standardize_quaternion,
-    axis_and_angle_to_matrix,
+    axis_and_angle_to_matrix_33,
     axis_and_d_to_pris_matrix,
     wxyz_to_xyzw,
     xyzw_to_wxyz,

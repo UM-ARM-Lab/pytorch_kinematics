@@ -1,6 +1,4 @@
 from functools import lru_cache
-from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix
-from pytorch_kinematics.transforms.rotation_conversions import axis_and_d_to_pris_matrix
 from typing import Optional, Sequence
 
 import numpy as np
@@ -9,9 +7,10 @@ import torch
 import pytorch_kinematics.transforms as tf
 from pytorch_kinematics import jacobian
 from pytorch_kinematics.frame import Frame, Link, Joint
+from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_44, axis_and_d_to_pris_matrix
 
 
-def get_th_size(th):
+def get_n_joints(th):
     """
 
     Args:
@@ -24,6 +23,19 @@ def get_th_size(th):
         return th.shape[-1]
     elif isinstance(th, list) or isinstance(th, dict):
         return len(th)
+    else:
+        raise NotImplementedError(f"Unsupported type {type(th)}")
+
+
+def get_batch_size(th):
+    if isinstance(th, torch.Tensor) or isinstance(th, np.ndarray):
+        return th.shape[0]
+    elif isinstance(th, dict):
+        elem_shape = get_dict_elem_shape(th)
+        return elem_shape[0]
+    elif isinstance(th, list):
+        # Lists cannot be batched. We don't allow lists of lists.
+        return 1
     else:
         raise NotImplementedError(f"Unsupported type {type(th)}")
 
@@ -282,6 +294,18 @@ class Chain:
         return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long, device=self.device)
 
     def forward_kinematics(self, th, frame_indices: Optional = None):
+        """
+        Compute forward kinematics for the given joint values.
+
+        Args:
+            th: A dict, list, numpy array, or torch tensor of joints values. Possibly batched.
+            frame_indices: A list of frame indices to compute transforms for. If None, all frames are computed.
+                Use `get_frame_indices` to convert from frame names to frame indices.
+
+        Returns:
+            A dict of Transform3d objects for each frame.
+
+        """
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
 
@@ -294,7 +318,7 @@ class Chain:
         # compute all joint transforms at once first
         # in order to handle multiple joint types without branching, we create all possible transforms
         # for all joint types and then select the appropriate one for each joint.
-        rev_jnt_transform = axis_and_angle_to_matrix(axes_expanded, th)
+        rev_jnt_transform = axis_and_angle_to_matrix_44(axes_expanded, th)
         pris_jnt_transform = axis_and_d_to_pris_matrix(axes_expanded, th)
 
         frame_transforms = {}
@@ -336,7 +360,7 @@ class Chain:
     def ensure_tensor(self, th):
         """
         Converts a number of possible types into a tensor. The order of the tensor is determined by the order
-        of self.get_joint_parameter_names().
+        of self.get_joint_parameter_names(). th must contain all joints in the entire chain.
         """
         if isinstance(th, np.ndarray):
             th = torch.tensor(th, device=self.device, dtype=self.dtype)
@@ -362,32 +386,17 @@ class Chain:
         frame_indices = self.get_frame_indices(*self.get_frame_names(exclude_fixed=False))
         return frame_indices
 
-    def ensure_dict_of_2d_tensors(self, th):
-        if not isinstance(th, dict):
-            th, _ = ensure_2d_tensor(th, self.dtype, self.device)
-            assert self.n_joints == th.shape[-1]
-            th_dict = dict((j, th[..., i]) for i, j in enumerate(self.get_joint_parameter_names()))
-        else:
-            th_dict = {k: ensure_2d_tensor(v, self.dtype, self.device)[0] for k, v in th.items()}
-        return th_dict
-
     def clamp(self, th):
-        th_dict = self.ensure_dict_of_2d_tensors(th)
+        """
 
-        out_th_dict = {}
-        for joint_name, joint_position in th_dict.items():
-            joint = self.find_joint(joint_name)
-            joint_position_clamped = joint.clamp(joint_position)
-            out_th_dict[joint_name] = joint_position_clamped
+        Args:
+            th: Joint configuration
 
-        return self.match_input_type(out_th_dict, th)
+        Returns: Always a tensor in the order of self.get_joint_parameter_names(), possibly batched.
 
-    @staticmethod
-    def match_input_type(th_dict, th):
-        if isinstance(th, dict):
-            return th_dict
-        else:
-            return torch.stack([v for v in th_dict.values()], dim=-1)
+        """
+        th = self.ensure_tensor(th)
+        return torch.clamp(th, self.low, self.high)
 
     def get_joint_limits(self):
         low = []
@@ -466,22 +475,33 @@ class SerialChain(Chain):
             return mat
 
     def convert_serial_inputs_to_chain_inputs(self, th, end_only: bool):
+        # th = self.ensure_tensor(th)
+        th_b = get_batch_size(th)
+        th_n_joints = get_n_joints(th)
+        if isinstance(th, list):
+            th = torch.tensor(th, device=self.device, dtype=self.dtype)
+
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
         else:
             # pass through default behavior for frame indices being None, which is currently
             # to return all frames.
             frame_indices = None
-        if get_th_size(th) < self.n_joints:
+        if th_n_joints < self.n_joints:
             # if th is only a partial list of joints, assume it's a list of joints for only the serial chain.
             partial_th = th
             nonfixed_serial_frames = list(filter(lambda f: f.joint.joint_type != 'fixed', self._serial_frames))
-            if len(nonfixed_serial_frames) != len(partial_th):
-                raise ValueError(f'Expected {len(nonfixed_serial_frames)} joint values, got {len(partial_th)}.')
-            th = torch.zeros(self.n_joints, device=self.device, dtype=self.dtype)
-            for frame, partial_th_i in zip(nonfixed_serial_frames, partial_th):
+            if th_n_joints != len(nonfixed_serial_frames):
+                raise ValueError(f'Expected {len(nonfixed_serial_frames)} joint values, got {th_n_joints}.')
+            th = torch.zeros([th_b, self.n_joints], device=self.device, dtype=self.dtype)
+            for i, frame in enumerate(nonfixed_serial_frames):
+                joint_name = frame.joint.name
+                if isinstance(partial_th, dict):
+                    partial_th_i = partial_th[joint_name]
+                else:
+                    partial_th_i = partial_th[..., i]
                 k = self.frame_to_idx[frame.name]
                 jnt_idx = self.joint_indices[k]
                 if frame.joint.joint_type != 'fixed':
-                    th[jnt_idx] = partial_th_i
+                    th[..., jnt_idx] = partial_th_i
         return frame_indices, th

@@ -1,7 +1,7 @@
 import torch
 
 import pytorch_kinematics.transforms as tf
-from pytorch_kinematics.transforms import axis_and_angle_to_matrix
+from pytorch_kinematics.transforms import axis_and_angle_to_matrix_33
 
 
 class Visual(object):
@@ -115,7 +115,7 @@ class Frame(object):
         dtype = self.joint.axis.dtype
         d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
-            rot = axis_and_angle_to_matrix(self.joint.axis, theta)
+            rot = axis_and_angle_to_matrix_33(self.joint.axis, theta)
             t = tf.Transform3d(rot=rot, dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
             t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)

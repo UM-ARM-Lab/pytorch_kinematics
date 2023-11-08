@@ -472,7 +472,7 @@ def axis_and_d_to_pris_matrix(axis, d):
     return mat44
 
 
-def axis_and_angle_to_matrix(axis, theta):
+def axis_and_angle_to_matrix_44(axis, theta):
     """
     Creates a 4x4 matrix that represents a rotation around an axis by an angle theta.
     Works with any number of batch dimensions.
@@ -482,6 +482,25 @@ def axis_and_angle_to_matrix(axis, theta):
         theta: [ ...]
 
     Returns: [..., 4, 4]
+
+    """
+    rot = axis_and_angle_to_matrix_33(axis, theta)
+    batch_shape = axis.shape[:-1]
+    mat44 = torch.cat((rot, torch.zeros(*batch_shape, 3, 1).to(axis)), -1)
+    mat44 = torch.cat((mat44, torch.tensor([0.0, 0.0, 0.0, 1.0]).expand(*batch_shape, 1, 4).to(axis)), -2)
+    return mat44
+
+
+def axis_and_angle_to_matrix_33(axis, theta):
+    """
+    Creates a 3x3 matrix that represents a rotation around an axis by an angle theta.
+    Works with any number of batch dimensions.
+
+    Argsaxis.sh:
+        axis: [..., 3]
+        theta: [ ...]
+
+    Returns: [..., 3, 3]
 
     """
     # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
@@ -501,10 +520,7 @@ def axis_and_angle_to_matrix(axis, theta):
     rot = torch.stack([torch.stack([r00, r01, r02], -1),
                        torch.stack([r10, r11, r12], -1),
                        torch.stack([r20, r21, r22], -1)], -2)
-    batch_shape = axis.shape[:-1]
-    mat44 = torch.cat((rot, torch.zeros(*batch_shape, 3, 1).to(axis)), -1)
-    mat44 = torch.cat((mat44, torch.tensor([0.0, 0.0, 0.0, 1.0]).expand(*batch_shape, 1, 4).to(axis)), -2)
-    return mat44
+    return rot
 
 
 def axis_angle_to_matrix(axis_angle):
