@@ -111,7 +111,9 @@ def build_chain_from_urdf(data):
     root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint()
     root_frame.link = frame.Link(root_link.name, _convert_transform(root_link.origin),
-                                 [_convert_visual(root_link.visual)])
+                                 [_convert_visual(root_link.visual)],
+                                 [_convert_visual(root_link.collision)])
+
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
     return chain.Chain(root_frame)
 

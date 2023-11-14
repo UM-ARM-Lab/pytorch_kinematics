@@ -22,13 +22,14 @@ class Visual(object):
 
 
 class Link(object):
-    def __init__(self, name=None, offset=None, visuals=()):
+    def __init__(self, name=None, offset=None, visuals=(), collisions=()):
         if offset is None:
             self.offset = None
         else:
             self.offset = offset
         self.name = name
         self.visuals = visuals
+        self.collisions = collisions
 
     def to(self, *args, **kwargs):
         if self.offset is not None:
@@ -36,9 +37,10 @@ class Link(object):
         return self
 
     def __repr__(self):
-        return "Link(name='{0}', offset={1}, visuals={2})".format(self.name,
-                                                                  self.offset,
-                                                                  self.visuals)
+        return "Link(name='{0}', offset={1}, visuals={2}, collisions={3})".format(self.name,
+                                                                                  self.offset,
+                                                                                  self.visuals,
+                                                                                  self.collisions)
 
 
 class Joint(object):
