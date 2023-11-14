@@ -416,6 +416,7 @@ class Transform3d:
 
         # TODO: inverse is bad! Solve a linear system instead
         mat = composed_matrix[:, :3, :3]
+
         normals_out = _broadcast_bmm(normals, mat)
 
         # This doesn't pass unit tests. TODO investigate further
@@ -446,7 +447,18 @@ class Transform3d:
             msg = "Expected shape_operators to have dim = 3 or dim = 4: got shape %r"
             raise ValueError(msg % (shape_operators.shape,))
         mat = self.inverse().get_matrix()[:, :3, :3]
-        shape_operators_out = _broadcast_bmm(mat.permute(0, 2, 1), _broadcast_bmm(shape_operators, mat))
+        N = mat.shape[0]
+        if shape_operators.dim() == 3:
+            P = shape_operators.shape[0]
+            shape_operators = shape_operators.reshape(1, P, 3, 3).expand(N, P, 3, 3)
+            mat = mat.reshape(N, 1, 3, 3).expand(N, P, 3, 3)
+        else:
+            N2, P = shape_operators.shape[:2]
+            assert N == N2
+            mat = mat.reshape(N, 1, 3, 3).expand(N, P, 3, 3)
+        shape_operators_out = mat.permute(0, 1, 3, 2) @ shape_operators @ mat
+
+        #shape_operators_out = _broadcast_bmm(mat.permute(0, 2, 1), _broadcast_bmm(shape_operators, mat))
 
         # When transform is (1, 4, 4) and shape_operator is (P, 3, 3) return
         # shape_operators_out of shape (P, 3, 3)
