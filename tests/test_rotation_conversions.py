@@ -1,9 +1,10 @@
 import timeit
 
+import numpy as np
 import torch
 
 from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_33, axis_angle_to_matrix, \
-    pos_rot_to_matrix, matrix_to_pos_rot, random_rotations
+    pos_rot_to_matrix, matrix_to_pos_rot, random_rotations, quaternion_from_euler
 
 
 def test_axis_angle_to_matrix_perf():
@@ -20,6 +21,21 @@ def test_axis_angle_to_matrix_perf():
 
     dt2 = timeit.timeit(lambda: axis_and_angle_to_matrix_33(axis=axis_1d, theta=theta), number=number)
     print(f'New method: {dt2:.5f}')
+
+
+def test_quaternion_from_euler():
+    q = quaternion_from_euler(0, 0, 0)
+    np.testing.assert_allclose(q, np.array([1., 0, 0, 0]))
+    root2_over_2 = np.sqrt(2) / 2
+
+    q = quaternion_from_euler(0, 0, np.pi / 2)
+    np.testing.assert_allclose(q, np.array([root2_over_2, 0, 0, root2_over_2]))
+
+    q = quaternion_from_euler(-np.pi / 2, 0, 0)
+    np.testing.assert_allclose(q, np.array([root2_over_2, -root2_over_2, 0, 0]))
+
+    q = quaternion_from_euler(0, np.pi / 2, 0)
+    np.testing.assert_allclose(q, np.array([root2_over_2, 0, root2_over_2, 0]))
 
 
 def test_pos_rot_conversion():

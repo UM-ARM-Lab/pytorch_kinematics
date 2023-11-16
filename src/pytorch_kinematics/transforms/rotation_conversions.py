@@ -538,7 +538,7 @@ def axis_angle_to_matrix(axis_angle):
     Returns:
         Rotation matrices as tensor of shape (..., 3, 3).
     """
-    warn('This is deprecated because it is slow. Use axis_and_angle_to_matrix',
+    warn('This is deprecated because it is slow. Use axis_and_angle_to_matrix_33 instead.',
          DeprecationWarning, stacklevel=2)
     return quaternion_to_matrix(axis_angle_to_quaternion(axis_angle))
 
