@@ -23,6 +23,7 @@ def test_axis_angle_to_matrix_perf():
     dt2 = timeit.timeit(lambda: axis_and_angle_to_matrix_33(axis=axis_1d, theta=theta), number=number)
     print(f'New method: {dt2:.5f}')
 
+def test_quaternion_close
 
 def test_quaternion_from_euler():
     q = quaternion_from_euler(torch.tensor([0., 0, 0]))

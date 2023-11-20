@@ -42,14 +42,14 @@ classifiers = [# Optional
 dependencies = [
     'absl-py',
     'lxml',
+    "mujoco",
     'numpy',
     'pyyaml',
     'torch',
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "mujoco"]
-mujoco = ["mujoco"]
+test = ["pytest"]
 
 [project.urls]
 "Homepage" = "https://github.com/UM-ARM-Lab/pytorch_kinematics"
