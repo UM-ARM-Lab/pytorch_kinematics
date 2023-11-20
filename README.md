@@ -6,8 +6,6 @@
 # Installation
 ```shell
 pip install pytorch-kinematics
-# Alternatively, if you want to load from mujoco's XML format, use:
-pip install pytorch-kinematics[mujoco]
 ```
 
 For development, clone repository somewhere, then `pip3 install -e .` to install in editable mode.
