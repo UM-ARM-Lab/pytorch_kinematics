@@ -14,8 +14,8 @@ def _convert_transform(origin):
     if origin is None:
         return tf.Transform3d()
     else:
-        return tf.Transform3d(rot=torch.tensor(tf.quaternion_from_euler(*origin.rpy, "sxyz"), dtype=torch.float32),
-                              pos=origin.xyz)
+        rpy = torch.tensor(origin.rpy, dtype=torch.float32)
+        return tf.Transform3d(rot=tf.quaternion_from_euler(rpy, "sxyz"), pos=origin.xyz)
 
 
 def _convert_visual(visual):

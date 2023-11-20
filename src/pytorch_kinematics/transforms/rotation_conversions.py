@@ -1,11 +1,9 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
 import functools
-import math
 from typing import Optional
 from warnings import warn
 
-import numpy
 import torch
 import torch.nn.functional as F
 
@@ -715,17 +713,13 @@ _AXES2TUPLE = {
 _TUPLE2AXES = {v: k for k, v in _AXES2TUPLE.items()}
 
 
-def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
+def quaternion_from_euler(rpy, axes='sxyz'):
     """
     Return quaternion from Euler angles and axis sequence.
     Taken from https://github.com/cgohlke/transformations/blob/master/transformations/transformations.py#L1238
 
     ai, aj, ak : Euler's roll, pitch and yaw angles
     axes : One of 24 axis sequences as string or encoded tuple
-
-    >>> q = quaternion_from_euler(1, 2, 3, 'ryxz')
-    >>> numpy.allclose(q, [0.435953, 0.310622, -0.718287, 0.444435])
-    True
 
     """
     try:
@@ -734,6 +728,7 @@ def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
         _TUPLE2AXES[axes]  # noqa: validation
         firstaxis, parity, repetition, frame = axes
 
+    ai, aj, ak = torch.unbind(rpy, -1)
     i = firstaxis + 1
     j = _NEXT_AXIS[i + parity - 1] + 1
     k = _NEXT_AXIS[i - parity] + 1
@@ -746,29 +741,29 @@ def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
     ai /= 2.0
     aj /= 2.0
     ak /= 2.0
-    ci = math.cos(ai)
-    si = math.sin(ai)
-    cj = math.cos(aj)
-    sj = math.sin(aj)
-    ck = math.cos(ak)
-    sk = math.sin(ak)
+    ci = torch.cos(ai)
+    si = torch.sin(ai)
+    cj = torch.cos(aj)
+    sj = torch.sin(aj)
+    ck = torch.cos(ak)
+    sk = torch.sin(ak)
     cc = ci * ck
     cs = ci * sk
     sc = si * ck
     ss = si * sk
 
-    q = numpy.empty((4,))
+    q = torch.zeros([*rpy.shape[:-1], 4]).to(rpy)
     if repetition:
-        q[0] = cj * (cc - ss)
-        q[i] = cj * (cs + sc)
-        q[j] = sj * (cc + ss)
-        q[k] = sj * (cs - sc)
+        q[..., 0] = cj * (cc - ss)
+        q[..., i] = cj * (cs + sc)
+        q[..., j] = sj * (cc + ss)
+        q[..., k] = sj * (cs - sc)
     else:
-        q[0] = cj * cc + sj * ss
-        q[i] = cj * sc - sj * cs
-        q[j] = cj * ss + sj * cc
-        q[k] = cj * cs - sj * sc
+        q[..., 0] = cj * cc + sj * ss
+        q[..., i] = cj * sc - sj * cs
+        q[..., j] = cj * ss + sj * cc
+        q[..., k] = cj * cs - sj * sc
     if parity:
-        q[j] *= -1.0
+        q[..., j] *= -1.0
 
     return q

@@ -3,6 +3,7 @@ import timeit
 import numpy as np
 import torch
 
+from pytorch_kinematics.transforms.math import quaternion_close
 from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_33, axis_angle_to_matrix, \
     pos_rot_to_matrix, matrix_to_pos_rot, random_rotations, quaternion_from_euler
 
@@ -24,18 +25,27 @@ def test_axis_angle_to_matrix_perf():
 
 
 def test_quaternion_from_euler():
-    q = quaternion_from_euler(0, 0, 0)
-    np.testing.assert_allclose(q, np.array([1., 0, 0, 0]))
+    q = quaternion_from_euler(torch.tensor([0., 0, 0]))
+    assert quaternion_close(q, torch.tensor([1., 0, 0, 0]))
     root2_over_2 = np.sqrt(2) / 2
 
-    q = quaternion_from_euler(0, 0, np.pi / 2)
-    np.testing.assert_allclose(q, np.array([root2_over_2, 0, 0, root2_over_2]))
+    q = quaternion_from_euler(torch.tensor([0, 0, np.pi / 2]))
+    assert quaternion_close(q, torch.tensor([root2_over_2, 0, 0, root2_over_2], dtype=q.dtype))
 
-    q = quaternion_from_euler(-np.pi / 2, 0, 0)
-    np.testing.assert_allclose(q, np.array([root2_over_2, -root2_over_2, 0, 0]))
+    q = quaternion_from_euler(torch.tensor([-np.pi / 2, 0, 0]))
+    assert quaternion_close(q, torch.tensor([root2_over_2, -root2_over_2, 0, 0], dtype=q.dtype))
 
-    q = quaternion_from_euler(0, np.pi / 2, 0)
-    np.testing.assert_allclose(q, np.array([root2_over_2, 0, root2_over_2, 0]))
+    q = quaternion_from_euler(torch.tensor([0, np.pi / 2, 0]))
+    assert quaternion_close(q, torch.tensor([root2_over_2, 0, root2_over_2, 0], dtype=q.dtype))
+
+    # Test batched
+    b = 32
+    rpy = torch.tensor([0, np.pi / 2, 0])
+    rpy_batch = torch.tile(rpy[None], (b, 1))
+    q_batch = quaternion_from_euler(rpy_batch)
+    q_expected = torch.tensor([root2_over_2, 0, root2_over_2, 0], dtype=q.dtype)
+    q_expected_batch = torch.tile(q_expected[None], (b, 1))
+    assert quaternion_close(q_batch, q_expected_batch)
 
 
 def test_pos_rot_conversion():
