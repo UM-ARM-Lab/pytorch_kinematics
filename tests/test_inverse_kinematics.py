@@ -43,7 +43,7 @@ def test_jacobian_follower():
     rob_tf = pk.Transform3d(pos=pos, rot=rot, device=device)
 
     # world frame goal
-    M = 100
+    M = 10000
     # generate random goal positions
     goal_pos = torch.rand(M, 3, device=device) * 0.5
     # also generate random goal rotations
@@ -55,7 +55,7 @@ def test_jacobian_follower():
 
     joints_high = torch.tensor([170, 120, 170, 120, 170, 120, 175], device=device)
     joint_limits = torch.stack((-joints_high, joints_high), dim=-1) * math.pi / 180.0
-    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=100, joint_limits=joint_limits,
+    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10, joint_limits=joint_limits,
                             early_stopping_any_converged=True,
                             early_stopping_no_improvement=True,
                             # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
