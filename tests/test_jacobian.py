@@ -24,7 +24,7 @@ def test_correctness():
     assert torch.allclose(J, J_expected, atol=1e-7)
 
     chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
-    chain = pk.SerialChain(chain, "arm_wrist_roll_frame")
+    chain = pk.SerialChain(chain, "arm_wrist_roll")
     th = torch.tensor([0.8, 0.2, -0.5, -0.3])
     J = chain.jacobian(th)
     torch.allclose(J, torch.tensor([[[0., -1.51017878, -0.46280904, 0.],
@@ -70,7 +70,7 @@ def test_jacobian_at_different_loc_than_ee():
 
 def test_jacobian_y_joint_axis():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "simple_y_arm.urdf")).read(), "eef")
-    th = torch.tensor([0])
+    th = torch.tensor([0.])
     J = chain.jacobian(th)
     J_c3 = torch.tensor([[[0.], [0.], [-0.3], [0.], [1.], [0.]]])
     assert torch.allclose(J, J_c3, atol=1e-7)

@@ -18,7 +18,7 @@ def calc_jacobian(serial_chain, th, tool=None):
         th = torch.tensor(th, dtype=serial_chain.dtype, device=serial_chain.device)
     if len(th.shape) <= 1:
         N = 1
-        th = th.view(1, -1)
+        th = th.reshape(1, -1)
     else:
         N = th.shape[0]
     ndof = th.shape[1]
@@ -47,7 +47,7 @@ def calc_jacobian(serial_chain, th, tool=None):
         elif f.joint.joint_type == "prismatic":
             cnt += 1
             j_eef[:, :3, -cnt] = f.joint.axis.repeat(N, 1) @ cur_transform[:, :3, :3]
-        cur_frame_transform = f.get_transform(th[:, -cnt].view(N, 1)).get_matrix()
+        cur_frame_transform = f.get_transform(th[:, -cnt]).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
 
     # currently j_eef is Jacobian in end-effector frame, convert to base/world frame

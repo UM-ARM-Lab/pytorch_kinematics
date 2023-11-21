@@ -35,16 +35,17 @@ def _build_chain_recurse(m, parent_frame, parent_body):
             if n_joints > 1:
                 raise ValueError("composite joints not supported (could implement this if needed)")
             if n_joints == 1:
-                # Find the joint for this body
-                for jntid in body.jntadr:
-                    joint = m.joint(jntid)
-                    child_joint = frame.Joint(joint.name, tf.Transform3d(pos=joint.pos), axis=joint.axis,
-                                              joint_type=JOINT_TYPE_MAP[joint.type[0]])
+                # Find the joint for this body, again assuming there's only one joint per body.
+                joint = m.joint(body.jntadr[0])
+                joint_offset = tf.Transform3d(pos=joint.pos)
+                child_joint = frame.Joint(joint.name, offset=joint_offset, axis=joint.axis,
+                                          joint_type=JOINT_TYPE_MAP[joint.type[0]],
+                                          limits=(joint.range[0], joint.range[1]))
             else:
                 child_joint = frame.Joint(body.name + "_fixed_joint")
             child_link = frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
             child_frame = frame.Frame(name=body.name, link=child_link, joint=child_joint)
-            parent_frame.children = parent_frame.children + (child_frame,)
+            parent_frame.children = parent_frame.children + [child_frame, ]
             _build_chain_recurse(m, child_frame, body)
 
     # iterate through all sites that are children of parent_body
@@ -53,7 +54,7 @@ def _build_chain_recurse(m, parent_frame, parent_body):
         if site.bodyid == parent_body.id:
             site_link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
             site_frame = frame.Frame(name=site.name, link=site_link)
-            parent_frame.children = parent_frame.children + (site_frame,)
+            parent_frame.children = parent_frame.children + [site_frame, ]
 
 
 def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
@@ -77,7 +78,7 @@ def build_chain_from_mjcf(data, body: Union[None, str, int] = None):
         root_body = m.body(0)
     else:
         root_body = m.body(body)
-    root_frame = frame.Frame(root_body.name + "_frame",
+    root_frame = frame.Frame(root_body.name,
                              link=frame.Link(root_body.name,
                                              offset=tf.Transform3d(rot=root_body.quat, pos=root_body.pos)),
                              joint=frame.Joint())
@@ -104,5 +105,5 @@ def build_serial_chain_from_mjcf(data, end_link_name, root_link_name=""):
         SerialChain object created from MJCF.
     """
     mjcf_chain = build_chain_from_mjcf(data)
-    return chain.SerialChain(mjcf_chain, end_link_name,
-                             "" if root_link_name == "" else root_link_name)
+    serial_chain = chain.SerialChain(mjcf_chain, end_link_name, "" if root_link_name == "" else root_link_name)
+    return serial_chain

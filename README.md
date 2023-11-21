@@ -6,8 +6,6 @@
 # Installation
 ```shell
 pip install pytorch-kinematics
-# Alternatively, if you want to load from mujoco's XML format, use:
-pip install pytorch-kinematics[mujoco]
 ```
 
 For development, clone repository somewhere, then `pip3 install -e .` to install in editable mode.
@@ -22,7 +20,7 @@ See `tests` for code samples; some are also shown here.
 If you use this package in your research, consider citing
 ```
 @software{Zhong_PyTorch_Kinematics_2023,
-author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin},
+author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin and Peter, Mitrano},
 doi = {10.5281/zenodo.7700588},
 month = {3},
 title = {{PyTorch Kinematics}},

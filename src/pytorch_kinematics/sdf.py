@@ -5,9 +5,9 @@ from . import frame
 from . import chain
 import pytorch_kinematics.transforms as tf
 
-JOINT_TYPE_MAP = {'revolute': 'revolute',
+JOINT_TYPE_MAP = {'revolute':  'revolute',
                   'prismatic': 'prismatic',
-                  'fixed': 'fixed'}
+                  'fixed':     'fixed'}
 
 
 def _convert_transform(pose):
@@ -46,13 +46,17 @@ def _build_chain_recurse(root_frame, lmap, joints):
     children = []
     for j in joints:
         if j.parent == root_frame.link.name:
-            child_frame = frame.Frame(j.child + "_frame")
+            child_frame = frame.Frame(j.child)
             link_p = lmap[j.parent]
             link_c = lmap[j.child]
             t_p = _convert_transform(link_p.pose)
             t_c = _convert_transform(link_c.pose)
+            try:
+                limits = (j.axis.limit.lower, j.axis.limit.upper)
+            except AttributeError:
+                limits = None
             child_frame.joint = frame.Joint(j.name, offset=t_p.inverse().compose(t_c),
-                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis.xyz)
+                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis.xyz, limits=limits)
             child_frame.link = frame.Link(link_c.name, offset=tf.Transform3d(),
                                           visuals=_convert_visuals(link_c.visuals))
             child_frame.children = _build_chain_recurse(child_frame, lmap, joints)
@@ -90,9 +94,15 @@ def build_chain_from_sdf(data):
         if has_root[i]:
             root_link = lmap[joints[i].parent]
             break
-    root_frame = frame.Frame(root_link.name + "_frame")
+    root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint(offset=_convert_transform(root_link.pose))
     root_frame.link = frame.Link(root_link.name, tf.Transform3d(),
                                  _convert_visuals(root_link.visuals))
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
     return chain.Chain(root_frame)
+
+
+def build_serial_chain_from_sdf(data, end_link_name, root_link_name=""):
+    mjcf_chain = build_chain_from_sdf(data)
+    serial_chain = chain.SerialChain(mjcf_chain, end_link_name, "" if root_link_name == "" else root_link_name)
+    return serial_chain

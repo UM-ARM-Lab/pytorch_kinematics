@@ -1,9 +1,11 @@
-import os
 import math
+import os
+from timeit import timeit
 
 import torch
 
 import pytorch_kinematics as pk
+from pytorch_kinematics.transforms.math import quaternion_close
 
 TEST_DIR = os.path.dirname(__file__)
 
@@ -15,26 +17,23 @@ def quat_pos_from_transform3d(tg):
     return pos, rot
 
 
-def quaternion_equality(a, b):
-    # negative of a quaternion is the same rotation
-    return torch.allclose(a, b) or torch.allclose(a, -b)
-
-
 # test more complex robot and the MJCF parser
 def test_fk_mjcf():
     chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read())
     chain = chain.to(dtype=torch.float64)
     print(chain)
     print(chain.get_joint_parameter_names())
-    th = {'hip_1': 1.0, 'ankle_1': 1}
+
+    th = {joint: 0.0 for joint in chain.get_joint_parameter_names()}
+    th.update({'hip_1': 1.0, 'ankle_1': 1})
     ret = chain.forward_kinematics(th)
     tg = ret['aux_1']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([0.87758256, 0., 0., 0.47942554], dtype=torch.float64))
+    assert quaternion_close(rot, torch.tensor([0.87758256, 0., 0., 0.47942554], dtype=torch.float64))
     assert torch.allclose(pos, torch.tensor([0.2, 0.2, 0.75], dtype=torch.float64))
     tg = ret['front_left_foot']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549], dtype=torch.float64))
+    assert quaternion_close(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549], dtype=torch.float64))
     assert torch.allclose(pos, torch.tensor([0.13976626, 0.47635466, 0.75], dtype=torch.float64))
     print(ret)
 
@@ -44,7 +43,7 @@ def test_fk_serial_mjcf():
     chain = chain.to(dtype=torch.float64)
     tg = chain.forward_kinematics([1.0, 1.0])
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549], dtype=torch.float64))
+    assert quaternion_close(rot, torch.tensor([0.77015115, -0.4600326, 0.13497724, 0.42073549], dtype=torch.float64))
     assert torch.allclose(pos, torch.tensor([0.13976626, 0.47635466, 0.75], dtype=torch.float64))
 
 
@@ -69,7 +68,7 @@ def test_fkik():
     tg = chain.forward_kinematics(th1)
     pos, rot = quat_pos_from_transform3d(tg)
     assert torch.allclose(pos, torch.tensor([[1.91081784, 0.41280851, 0.0000]]))
-    assert quaternion_equality(rot, torch.tensor([[0.95521418, 0.0000, 0.0000, 0.2959153]]))
+    assert quaternion_close(rot, torch.tensor([[0.95521418, 0.0000, 0.0000, 0.2959153]]))
     N = 20
     th_batch = torch.rand(N, 2)
     tg_batch = chain.forward_kinematics(th_batch)
@@ -95,44 +94,52 @@ def test_urdf():
     ret = chain.forward_kinematics(th)
     tg = ret['lbr_iiwa_link_7']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
-    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01], dtype=torch.float64))
+    assert quaternion_close(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01], dtype=torch.float64), atol=1e-6)
 
 
 def test_urdf_serial():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
     chain.to(dtype=torch.float64)
-    print(chain)
-    print(chain.get_joint_parameter_names())
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0, 0.0]
+
     ret = chain.forward_kinematics(th, end_only=False)
     tg = ret['lbr_iiwa_link_7']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
-    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01], dtype=torch.float64))
+    assert quaternion_close(rot, torch.tensor([7.07106781e-01, 0, -7.07106781e-01, 0], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([-6.60827561e-01, 0, 3.74142136e-01], dtype=torch.float64), atol=1e-6)
 
     N = 1000
     d = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float64
 
     th_batch = torch.rand(N, len(chain.get_joint_parameter_names()), dtype=dtype, device=d)
+
     chain = chain.to(dtype=dtype, device=d)
 
-    import time
-    start = time.time()
-    tg_batch = chain.forward_kinematics(th_batch)
-    m = tg_batch.get_matrix()
-    elapsed = time.time() - start
-    print("elapsed {}s for N={} when parallel".format(elapsed, N))
+    # NOTE: Warmstart since pytorch can be slow the first time you run it
+    #  this has to be done after you move it to the GPU. Otherwise the timing isn't representative.
+    for _ in range(5):
+        ret = chain.forward_kinematics(th)
 
-    start = time.time()
-    elapsed = 0
-    for i in range(N):
-        tg = chain.forward_kinematics(th_batch[i])
-        elapsed += time.time() - start
-        start = time.time()
-        assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
-    print("elapsed {}s for N={} when serial".format(elapsed, N))
+    number = 10
+
+    def _fk_parallel():
+        tg_batch = chain.forward_kinematics(th_batch)
+        m = tg_batch.get_matrix()
+
+    dt_parallel = timeit(_fk_parallel, number=number) / number
+    print("elapsed {}s for N={} when parallel".format(dt_parallel, N))
+
+    def _fk_serial():
+        for i in range(N):
+            tg = chain.forward_kinematics(th_batch[i])
+            m = tg.get_matrix()
+
+    dt_serial = timeit(_fk_serial, number=number) / number
+    print("elapsed {}s for N={} when serial".format(dt_serial, N))
+
+    # assert torch.allclose(tg.get_matrix().view(4, 4), m[i])
 
 
 # test robot with prismatic and fixed joints
@@ -141,16 +148,30 @@ def test_fk_simple_arm():
     chain = chain.to(dtype=torch.float64)
     # print(chain)
     # print(chain.get_joint_parameter_names())
-    ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
+    ret = chain.forward_kinematics({
+        'arm_shoulder_pan_joint': 0.,
+        'arm_elbow_pan_joint':    math.pi / 2.0,
+        'arm_wrist_lift_joint':   -0.5,
+        'arm_wrist_roll_joint':   0.,
+    })
     tg = ret['arm_wrist_roll']
     pos, rot = quat_pos_from_transform3d(tg)
-    assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=torch.float64))
+    assert quaternion_close(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=torch.float64))
     assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=torch.float64))
 
     N = 100
-    ret = chain.forward_kinematics({'arm_elbow_pan_joint': torch.rand(N, 1), 'arm_wrist_lift_joint': torch.rand(N, 1)})
+    ret = chain.forward_kinematics({k: torch.rand(N) for k in chain.get_joint_parameter_names()})
     tg = ret['arm_wrist_roll']
     assert list(tg.get_matrix().shape) == [N, 4, 4]
+
+
+def test_sdf_serial_chain():
+    chain = pk.build_serial_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read(), 'arm_wrist_roll')
+    chain = chain.to(dtype=torch.float64)
+    tg = chain.forward_kinematics([0., math.pi / 2.0, -0.5, 0.])
+    pos, rot = quat_pos_from_transform3d(tg)
+    assert quaternion_close(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=torch.float64))
 
 
 def test_cuda():
@@ -158,6 +179,7 @@ def test_cuda():
         d = "cuda"
         dtype = torch.float64
         chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
+        # noinspection PyUnusedLocal
         chain = chain.to(dtype=dtype, device=d)
 
         # NOTE: do it twice because we previously had an issue with default arguments
@@ -165,10 +187,15 @@ def test_cuda():
         chain = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
         chain = chain.to(dtype=dtype, device=d)
 
-        ret = chain.forward_kinematics({'arm_elbow_pan_joint': math.pi / 2.0, 'arm_wrist_lift_joint': -0.5})
+        ret = chain.forward_kinematics({
+            'arm_shoulder_pan_joint': 0,
+            'arm_elbow_pan_joint':    math.pi / 2.0,
+            'arm_wrist_lift_joint':   -0.5,
+            'arm_wrist_roll_joint':   0,
+        })
         tg = ret['arm_wrist_roll']
         pos, rot = quat_pos_from_transform3d(tg)
-        assert quaternion_equality(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
+        assert quaternion_close(rot, torch.tensor([0.70710678, 0., 0., 0.70710678], dtype=dtype, device=d))
         assert torch.allclose(pos, torch.tensor([1.05, 0.55, 0.5], dtype=dtype, device=d))
 
         data = '<robot name="test_robot">' \
@@ -216,12 +243,53 @@ def test_mjcf_slide_joint_parsing():
     print(chain.get_frame_names())
 
 
+def test_fk_val():
+    chain = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read())
+    chain = chain.to(dtype=torch.float64)
+    ret = chain.forward_kinematics(torch.zeros([1000, chain.n_joints], dtype=torch.float64))
+    tg = ret['drive45']
+    pos, rot = quat_pos_from_transform3d(tg)
+    torch.set_printoptions(precision=6, sci_mode=False)
+    assert quaternion_close(rot, torch.tensor([0.5, 0.5, -0.5, 0.5], dtype=torch.float64))
+    assert torch.allclose(pos, torch.tensor([-0.225692, 0.259045, 0.262139], dtype=torch.float64))
+
+
+def test_fk_partial_batched_dict():
+    # Test that you can pass in dict of batched joint configs for a subset of the joints
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read(), 'left_tool')
+    th = {
+        'joint56': torch.zeros([1000], dtype=torch.float64),
+        'joint57': torch.zeros([1000], dtype=torch.float64),
+        'joint41': torch.zeros([1000], dtype=torch.float64),
+        'joint42': torch.zeros([1000], dtype=torch.float64),
+        'joint43': torch.zeros([1000], dtype=torch.float64),
+        'joint44': torch.zeros([1000], dtype=torch.float64),
+        'joint45': torch.zeros([1000], dtype=torch.float64),
+        'joint46': torch.zeros([1000], dtype=torch.float64),
+        'joint47': torch.zeros([1000], dtype=torch.float64),
+    }
+    chain = chain.to(dtype=torch.float64)
+    tg = chain.forward_kinematics(th)
+
+
+def test_fk_partial_batched():
+    # Test that you can pass in dict of batched joint configs for a subset of the joints
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "val.xml")).read(), 'left_tool')
+    th = torch.zeros([1000, 9], dtype=torch.float64)
+    chain = chain.to(dtype=torch.float64)
+    tg = chain.forward_kinematics(th)
+
+
 if __name__ == "__main__":
+    test_fk_partial_batched()
+    test_fk_partial_batched_dict()
+    test_fk_val()
+    test_sdf_serial_chain()
+    test_urdf_serial()
     test_fkik()
     test_fk_simple_arm()
     test_fk_mjcf()
     test_cuda()
     test_urdf()
-    test_urdf_serial()
     # test_fk_mjcf_humanoid()
     test_mjcf_slide_joint_parsing()

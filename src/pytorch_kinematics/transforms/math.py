@@ -10,6 +10,16 @@ from typing import Tuple, Union
 import torch
 
 
+def quaternion_close(q1: torch.Tensor, q2: torch.Tensor, eps: float = 1e-4):
+    """
+    Returns true if two quaternions are close to each other. Assumes the quaternions are normalized.
+    Based on: https://math.stackexchange.com/a/90098/516340
+
+    """
+    dist = 1 - torch.square(torch.sum(q1*q2, dim=-1))
+    return torch.all(dist < eps)
+
+
 def acos_linear_extrapolation(
         x: torch.Tensor,
         bound: Union[float, Tuple[float, float]] = 1.0 - 1e-4,

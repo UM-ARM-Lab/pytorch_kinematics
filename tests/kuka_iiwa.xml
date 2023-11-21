@@ -1,0 +1,42 @@
+<mujoco model="lbr_iiwa">
+  <compiler angle="radian"/>
+  <statistic meansize="0.172659" extent="1.49336" center="-0.00545542 0.00416953 0.609891"/>
+  <worldbody>
+    <geom type="sphere" rgba="0.2 0.2 0.2 1" size="0.02"/>
+    <body name="lbr_iiwa_link_1" pos="0 0 0.1575">
+      <inertial pos="0 -0.03 0.12" mass="4" diaginertia="0.1 0.09 0.02"/>
+      <joint name="lbr_iiwa_joint_1" pos="0 0 0" axis="0 0 1" range="-2.96706 2.96706" damping="0.5"/>
+      <geom type="sphere" rgba="0.5 0.7 1 1" size="0.02"/>
+      <body name="lbr_iiwa_link_2" pos="0 0 0.2025" quat="0 0 0.707107 0.707107">
+        <inertial pos="0.0003 0.059 0.042" quat="0.707107 0.707107 0 0" mass="4" diaginertia="0.05 0.044 0.018"/>
+        <joint name="lbr_iiwa_joint_2" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5"/>
+        <geom type="sphere" rgba="0.5 0.7 1 1" size="0.02"/>
+        <body name="lbr_iiwa_link_3" pos="0 0.2045 0" quat="0 0 0.707107 0.707107">
+          <inertial pos="0 0.03 0.13" mass="3" diaginertia="0.08 0.075 0.01"/>
+          <joint name="lbr_iiwa_joint_3" pos="0 0 0" axis="0 0 1" range="-2.96706 2.96706" damping="0.5"/>
+          <geom type="sphere" rgba="1 0.423529 0.0392157 1" size="0.02"/>
+          <body name="lbr_iiwa_link_4" pos="0 0 0.2155" quat="0.707107 0.707107 0 0">
+            <inertial pos="0 0.067 0.034" quat="0.707107 0.707107 0 0" mass="2.7" diaginertia="0.03 0.029 0.01"/>
+            <joint name="lbr_iiwa_joint_4" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5"/>
+            <geom type="sphere" rgba="0.5 0.7 1 1" size="0.02"/>
+            <body name="lbr_iiwa_link_5" pos="0 0.1845 0" quat="0 0 0.707107 0.707107">
+              <inertial pos="0.0001 0.021 0.076" mass="1.7" diaginertia="0.02 0.018 0.005"/>
+              <joint name="lbr_iiwa_joint_5" pos="0 0 0" axis="0 0 1" range="-2.96706 2.96706" damping="0.5"/>
+              <geom type="sphere" rgba="0.5 0.7 1 1" size="0.02"/>
+              <body name="lbr_iiwa_link_6" pos="0 0 0.2155" quat="0.707107 0.707107 0 0">
+                <inertial pos="0 0.0006 0.0004" quat="0.707107 0.707107 0 0" mass="1.8" diaginertia="0.005 0.0047 0.0036"/>
+                <joint name="lbr_iiwa_joint_6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" damping="0.5"/>
+                <geom type="sphere" rgba="1 0.423529 0.0392157 1" size="0.02"/>
+                <body name="lbr_iiwa_link_7" pos="0 0.081 0" quat="0 0 0.707107 0.707107">
+                  <inertial pos="0 0 0.02" mass="0.3" diaginertia="0.001 0.001 0.001"/>
+                  <joint name="lbr_iiwa_joint_7" pos="0 0 0" axis="0 0 1" range="-3.05433 3.05433" damping="0.5"/>
+                  <geom type="sphere" rgba="0.2 0.2 0.2 1" size="0.02"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

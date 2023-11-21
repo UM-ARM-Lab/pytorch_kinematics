@@ -2,6 +2,7 @@
 
 import functools
 from typing import Optional
+from warnings import warn
 
 import torch
 import torch.nn.functional as F
@@ -449,12 +450,62 @@ def quaternion_apply(quaternion, point):
     return out[..., 1:]
 
 
-def axis_and_angle_to_matrix_directly(axis, theta):
+def axis_and_d_to_pris_matrix(axis, d):
+    """
+    Creates a 4x4 matrix that represents a translation along an axis of a distance d
+    Works with any number of batch dimensions.
+
+    Args:
+        axis: [..., 3]
+        d: [ ...]
+
+    Returns: [..., 4, 4]
+
+    """
+    batch_axes = axis.shape[:-1]
+    mat33 = torch.eye(3).to(axis).expand(*batch_axes, 3, 3)
+    pos = axis * d.unsqueeze(-1)
+    mat44 = torch.cat((mat33, pos.unsqueeze(-1)), -1)
+    mat44 = torch.cat((mat44, torch.tensor([0.0, 0.0, 0.0, 1.0]).expand(*batch_axes, 1, 4).to(axis)), -2)
+    return mat44
+
+
+def axis_and_angle_to_matrix_44(axis, theta):
+    """
+    Creates a 4x4 matrix that represents a rotation around an axis by an angle theta.
+    Works with any number of batch dimensions.
+
+    Args:
+        axis: [..., 3]
+        theta: [ ...]
+
+    Returns: [..., 4, 4]
+
+    """
+    rot = axis_and_angle_to_matrix_33(axis, theta)
+    batch_shape = axis.shape[:-1]
+    mat44 = torch.cat((rot, torch.zeros(*batch_shape, 3, 1).to(axis)), -1)
+    mat44 = torch.cat((mat44, torch.tensor([0.0, 0.0, 0.0, 1.0]).expand(*batch_shape, 1, 4).to(axis)), -2)
+    return mat44
+
+
+def axis_and_angle_to_matrix_33(axis, theta):
+    """
+    Creates a 3x3 matrix that represents a rotation around an axis by an angle theta.
+    Works with any number of batch dimensions.
+
+    Argsaxis.sh:
+        axis: [..., 3]
+        theta: [ ...]
+
+    Returns: [..., 3, 3]
+
+    """
     # based on https://ai.stackexchange.com/questions/14041/, and checked against wikipedia
     c = torch.cos(theta)  # NOTE: cos is not that precise for float32, you may want to use float64
     one_minus_c = 1 - c
     s = torch.sin(theta)
-    kx, ky, kz = axis
+    kx, ky, kz = torch.unbind(axis, -1)
     r00 = c + kx * kx * one_minus_c
     r01 = kx * ky * one_minus_c - kz * s
     r02 = kx * kz * one_minus_c + ky * s
@@ -464,9 +515,9 @@ def axis_and_angle_to_matrix_directly(axis, theta):
     r20 = kz * kx * one_minus_c - ky * s
     r21 = kz * ky * one_minus_c + kx * s
     r22 = c + kz * kz * one_minus_c
-    rot = torch.stack([torch.cat([r00, r01, r02], -1),
-                       torch.cat([r10, r11, r12], -1),
-                       torch.cat([r20, r21, r22], -1)], -2)
+    rot = torch.stack([torch.stack([r00, r01, r02], -1),
+                       torch.stack([r10, r11, r12], -1),
+                       torch.stack([r20, r21, r22], -1)], -2)
     return rot
 
 
@@ -485,6 +536,8 @@ def axis_angle_to_matrix(axis_angle):
     Returns:
         Rotation matrices as tensor of shape (..., 3, 3).
     """
+    warn('This is deprecated because it is slow. Use axis_and_angle_to_matrix_33 instead.',
+         DeprecationWarning, stacklevel=2)
     return quaternion_to_matrix(axis_angle_to_quaternion(axis_angle))
 
 
@@ -624,3 +677,93 @@ def pos_rot_to_matrix(pos, rot):
     m[..., :3, 3] = pos
     m[..., :3, :3] = rot
     return m
+
+
+# axis sequences for Euler angles
+_NEXT_AXIS = [1, 2, 0, 1]
+
+# map axes strings to/from tuples of inner axis, parity, repetition, frame
+_AXES2TUPLE = {
+    'sxyz': (0, 0, 0, 0),
+    'sxyx': (0, 0, 1, 0),
+    'sxzy': (0, 1, 0, 0),
+    'sxzx': (0, 1, 1, 0),
+    'syzx': (1, 0, 0, 0),
+    'syzy': (1, 0, 1, 0),
+    'syxz': (1, 1, 0, 0),
+    'syxy': (1, 1, 1, 0),
+    'szxy': (2, 0, 0, 0),
+    'szxz': (2, 0, 1, 0),
+    'szyx': (2, 1, 0, 0),
+    'szyz': (2, 1, 1, 0),
+    'rzyx': (0, 0, 0, 1),
+    'rxyx': (0, 0, 1, 1),
+    'ryzx': (0, 1, 0, 1),
+    'rxzx': (0, 1, 1, 1),
+    'rxzy': (1, 0, 0, 1),
+    'ryzy': (1, 0, 1, 1),
+    'rzxy': (1, 1, 0, 1),
+    'ryxy': (1, 1, 1, 1),
+    'ryxz': (2, 0, 0, 1),
+    'rzxz': (2, 0, 1, 1),
+    'rxyz': (2, 1, 0, 1),
+    'rzyz': (2, 1, 1, 1),
+}
+
+_TUPLE2AXES = {v: k for k, v in _AXES2TUPLE.items()}
+
+
+def quaternion_from_euler(rpy, axes='sxyz'):
+    """
+    Return quaternion from Euler angles and axis sequence.
+    Taken from https://github.com/cgohlke/transformations/blob/master/transformations/transformations.py#L1238
+
+    ai, aj, ak : Euler's roll, pitch and yaw angles
+    axes : One of 24 axis sequences as string or encoded tuple
+
+    """
+    try:
+        firstaxis, parity, repetition, frame = _AXES2TUPLE[axes.lower()]
+    except (AttributeError, KeyError):
+        _TUPLE2AXES[axes]  # noqa: validation
+        firstaxis, parity, repetition, frame = axes
+
+    ai, aj, ak = torch.unbind(rpy, -1)
+    i = firstaxis + 1
+    j = _NEXT_AXIS[i + parity - 1] + 1
+    k = _NEXT_AXIS[i - parity] + 1
+
+    if frame:
+        ai, ak = ak, ai
+    if parity:
+        aj = -aj
+
+    ai /= 2.0
+    aj /= 2.0
+    ak /= 2.0
+    ci = torch.cos(ai)
+    si = torch.sin(ai)
+    cj = torch.cos(aj)
+    sj = torch.sin(aj)
+    ck = torch.cos(ak)
+    sk = torch.sin(ak)
+    cc = ci * ck
+    cs = ci * sk
+    sc = si * ck
+    ss = si * sk
+
+    q = torch.zeros([*rpy.shape[:-1], 4]).to(rpy)
+    if repetition:
+        q[..., 0] = cj * (cc - ss)
+        q[..., i] = cj * (cs + sc)
+        q[..., j] = sj * (cc + ss)
+        q[..., k] = sj * (cs - sc)
+    else:
+        q[..., 0] = cj * cc + sj * ss
+        q[..., i] = cj * sc - sj * cs
+        q[..., j] = cj * ss + sj * cc
+        q[..., k] = cj * cs - sj * sc
+    if parity:
+        q[..., j] *= -1.0
+
+    return q
