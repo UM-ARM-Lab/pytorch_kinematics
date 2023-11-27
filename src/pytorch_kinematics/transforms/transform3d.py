@@ -228,11 +228,6 @@ class Transform3d:
         rot = matrix_to_quaternion(m[:, :3, :3])
         return "Transform3d(rot={}, pos={})".format(rot, pos).replace('\n       ', '')
 
-    def clean(self):
-        self._matrix = self.get_matrix()
-        self._transforms = []
-        return self
-
     def compose(self, *others):
         """
         Return a new Transform3d with the tranforms to compose stored as
