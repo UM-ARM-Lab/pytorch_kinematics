@@ -136,7 +136,7 @@ class InverseKinematics:
                  joint_limits: Optional[torch.Tensor] = None,
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
                  max_iterations: int = 50,
-                 lr: float = 0.5, line_search: Optional[LineSearch] = None,
+                 lr: float = 0.2, line_search: Optional[LineSearch] = None,
                  regularlization: float = 1e-9,
                  debug=False,
                  early_stopping_any_converged=False,

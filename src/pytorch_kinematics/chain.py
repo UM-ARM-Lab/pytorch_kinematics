@@ -458,10 +458,10 @@ class SerialChain(Chain):
                     return [child] + frames
         return None
 
-    def jacobian(self, th, locations=None):
+    def jacobian(self, th, locations=None, **kwargs):
         if locations is not None:
             locations = tf.Transform3d(pos=locations)
-        return jacobian.calc_jacobian(self, th, tool=locations)
+        return jacobian.calc_jacobian(self, th, tool=locations, **kwargs)
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
