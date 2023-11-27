@@ -42,7 +42,7 @@ class IKSolution:
         self.remaining = self.remaining & keep
         return self.remaining
 
-    def update(self, q: torch.tensor, err: torch.tensor, use_remaining=False, keep_mask=None):
+    def update(self, q: torch.tensor, err: torch.tensor, use_keep_mask=True, keep_mask=None):
         err = err.reshape(-1, self.num_retries, 6)
         err_pos = err[..., :3].norm(dim=-1)
         err_rot = err[..., 3:].norm(dim=-1)
@@ -57,7 +57,7 @@ class IKSolution:
         # stop considering problems where any converged
         qq = q.reshape(-1, self.num_retries, self.dof)
 
-        if not use_remaining:
+        if use_keep_mask:
             # those that have converged are no longer remaining
             self.update_remaining_with_keep_mask(keep_mask)
 
@@ -132,7 +132,7 @@ class InverseKinematics:
 
     def __init__(self, serial_chain: SerialChain,
                  pos_tolerance: float = 1e-3, rot_tolerance: float = 1e-2,
-                 initial_configs: Optional[torch.Tensor] = None, num_retries: Optional[int] = None,
+                 retry_configs: Optional[torch.Tensor] = None, num_retries: Optional[int] = None,
                  joint_limits: Optional[torch.Tensor] = None,
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
                  max_iterations: int = 50,
@@ -140,17 +140,32 @@ class InverseKinematics:
                  regularlization: float = 1e-9,
                  debug=False,
                  early_stopping_any_converged=False,
-                 early_stopping_no_improvement=True,
+                 early_stopping_no_improvement="any", early_stopping_no_improvement_patience=2,
                  optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd"
                  ):
         """
         :param serial_chain:
-        :param pos_tolerance:
-        :param rot_tolerance:
-        :param initial_configs:
-        :param num_retries:
+        :param pos_tolerance: position tolerance in meters
+        :param rot_tolerance: rotation tolerance in radians
+        :param retry_configs: (M, DOF) tensor of initial configs to try for each problem; leave as None to sample
+        :param num_retries: number, M, of random initial configs to try for that problem
         :param joint_limits: (DOF, 2) tensor of joint limits (min, max) for each joint in radians
-        :param config_sampling_method:
+        :param config_sampling_method: either "uniform" or "gaussian" or a function that takes in the number of configs
+        :param max_iterations: maximum number of iterations to run
+        :param lr: learning rate
+        :param line_search: LineSearch object to use for line search
+        :param regularlization: regularization term to add to the Jacobian
+        :param debug: whether to print debug information
+        :param early_stopping_any_converged: whether to stop when any of the retries for a problem converged
+        :param early_stopping_no_improvement: {None, "all", "any", ratio} whether to stop when no improvement is made
+        (consecutive iterations no improvement in minimum error - number of consecutive iterations is the patience).
+        None means no early stopping from this, "all" means stop when all retries for that problem makes no improvement,
+        "any" means stop when any of the retries for that problem makes no improvement, and ratio means stop when
+        the ratio (between 0 and 1) of the number of retries that is making improvement falls below the ratio.
+        So "all" is equivalent to ratio=0.999, and "any" is equivalent to ratio=0.001
+        :param early_stopping_no_improvement_patience: number of consecutive iterations with no improvement before
+        considering it no improvement
+        :param optimizer_method: either a string or a torch.optim.Optimizer class
         """
         self.chain = serial_chain
         self.dtype = serial_chain.dtype
@@ -160,7 +175,7 @@ class InverseKinematics:
         self.debug = debug
         self.early_stopping_any_converged = early_stopping_any_converged
         self.early_stopping_no_improvement = early_stopping_no_improvement
-        self.past_improvement = None
+        self.early_stopping_no_improvement_patience = early_stopping_no_improvement_patience
 
         self.max_iterations = max_iterations
         self.lr = lr
@@ -169,21 +184,23 @@ class InverseKinematics:
         self.line_search = line_search
 
         self.err = None
-        self.err_prev = None
+        self.err_all = None
+        self.err_min = None
+        self.no_improve_counter = None
 
         self.pos_tolerance = pos_tolerance
         self.rot_tolerance = rot_tolerance
-        self.initial_config = initial_configs
-        if initial_configs is None and num_retries is None:
+        self.initial_config = retry_configs
+        if retry_configs is None and num_retries is None:
             raise ValueError("either initial_configs or num_retries must be specified")
 
         # sample initial configs instead
         self.config_sampling_method = config_sampling_method
         self.joint_limits = joint_limits
-        if initial_configs is None:
+        if retry_configs is None:
             self.initial_config = self.sample_configs(num_retries)
         else:
-            if initial_configs.shape[1] != self.dof:
+            if retry_configs.shape[1] != self.dof:
                 raise ValueError("initial_configs must have shape (N, %d)" % self.dof)
         # could give a batch of initial configs
         self.num_retries = self.initial_config.shape[-2]
@@ -299,27 +316,35 @@ class PseudoInverseIK(InverseKinematics):
                     q = q + lr * dq
 
             with torch.no_grad():
-                self.err_prev = self.err
                 self.err_all = dx.squeeze()
                 self.err = self.err_all.norm(dim=-1)
+                sol.update(q, self.err_all, use_keep_mask=self.early_stopping_any_converged)
 
-                if improvement is None and self.err_prev is not None:
-                    improvement = self.err_prev - self.err
-                    improvement = improvement.reshape(-1, self.num_retries)
-                    improvement = improvement.mean(dim=1)
+                if self.early_stopping_no_improvement is not None:
+                    if self.no_improve_counter is None:
+                        self.no_improve_counter = torch.zeros_like(self.err)
+                    else:
+                        if self.err_min is None:
+                            self.err_min = self.err.clone()
+                        else:
+                            improved = self.err < self.err_min
+                            self.err_min[improved] = self.err[improved]
 
-                if self.early_stopping_any_converged:
-                    # stop considering problems where any converged
-                     sol.update(q, self.err_all, use_remaining=False)
+                            self.no_improve_counter[improved] = 0
+                            self.no_improve_counter[~improved] += 1
 
-                if self.early_stopping_no_improvement:
-                    if self.past_improvement is not None:
-                        # average improvement of this and before
-                        avg_improvement = (improvement + self.past_improvement) / 2
-                        enough_improvement = avg_improvement > 0.0
-                        # stop working on those that we can't improve
-                        sol.update(q, self.err_all, use_remaining=False, keep_mask=enough_improvement)
-                    self.past_improvement = improvement
+                            # those that haven't improved
+                            could_improve = self.no_improve_counter <= self.early_stopping_no_improvement_patience
+                            # consider problems, and only throw out those whose all retries cannot be improved
+                            could_improve = could_improve.reshape(-1, self.num_retries)
+                            if self.early_stopping_no_improvement == "all":
+                                could_improve = could_improve.all(dim=1)
+                            elif self.early_stopping_no_improvement == "any":
+                                could_improve = could_improve.any(dim=1)
+                            elif isinstance(self.early_stopping_no_improvement, float):
+                                ratio_improved = could_improve.sum(dim=1) / self.num_retries
+                                could_improve = ratio_improved > self.early_stopping_no_improvement
+                            sol.update_remaining_with_keep_mask(could_improve)
 
                 if self.debug:
                     pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
@@ -347,5 +372,5 @@ class PseudoInverseIK(InverseKinematics):
             plt.show()
 
         if i == self.max_iterations - 1:
-            sol.update(q, self.err_all, use_remaining=True)
+            sol.update(q, self.err_all, use_keep_mask=False)
         return sol
