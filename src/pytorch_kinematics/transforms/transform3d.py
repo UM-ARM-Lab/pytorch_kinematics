@@ -249,20 +249,7 @@ class Transform3d:
 
     def get_matrix(self):
         """
-        Return a matrix which is the result of composing this transform
-        with others stored in self.transforms. Where necessary transforms
-        are broadcast against each other.
-        For example, if self.transforms contains transforms t1, t2, and t3, and
-        given a set of points x, the following should be true:
-
-        .. code-block:: python
-
-            y1 = t1.compose(t2, t3).transform(x)
-            y2 = t3.transform(t2.transform(t1.transform(x)))
-            y1.get_matrix() == y2.get_matrix()
-
-        Returns:
-            A transformation matrix representing the composed inputs.
+        Return the Nx4x4 homogeneous transformation matrix represented by this object.
         """
         return self._matrix
 
@@ -276,7 +263,7 @@ class Transform3d:
     @staticmethod
     def _invert_transformation_matrix(T):
         """
-        Inverts homogeneous transformation matrix
+        Invert homogeneous transformation matrix.
         """
         Tinv = T.clone()
         R = T[:, :3, :3]
@@ -291,14 +278,7 @@ class Transform3d:
         current transformation.
 
         Args:
-            invert_composed:
-                - True: First compose the list of stored transformations
-                  and then apply inverse to the result. This is
-                  potentially slower for classes of transformations
-                  with inverses that can be computed efficiently
-                  (e.g. rotations and translations).
-                - False: Invert the individual stored transformations
-                  independently without composing them.
+            invert_composed: ignored, included for backwards compatibility
 
         Returns:
             A new Transform3D object containing the inverse of the original
