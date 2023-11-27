@@ -505,3 +505,10 @@ class SerialChain(Chain):
                 if frame.joint.joint_type != 'fixed':
                     th[..., jnt_idx] = partial_th_i
         return frame_indices, th
+
+    def visualize(self, th: torch.Tensor):
+        """Visualize the robot chain in joint configuration th."""
+        from pytorch_kinematics.visualize import visualize
+        fk = self.forward_kinematics(th, end_only=False)
+        arr = np.vstack([fk[f.name].get_matrix().cpu().detach().numpy() for f in self._serial_frames])
+        visualize(arr)
