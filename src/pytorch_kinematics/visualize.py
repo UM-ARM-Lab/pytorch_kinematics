@@ -6,12 +6,13 @@ from mpl_toolkits.mplot3d import axes3d
 import numpy as np
 
 
-def visualize(frames: np.ndarray):
+def visualize(frames: np.ndarray, show: bool = False) -> plt.Axes:
     """
     Visualizes a sequence of frames.
     Args:
         frames: An nx4x4 array of frame placements. Assumes the first frame is the base frame (no implicit world frame
         is assumed).
+        show: Whether to show the plot.
 
     Returns: None
     """
@@ -28,7 +29,12 @@ def visualize(frames: np.ndarray):
     ax.set_xlim(center[0] - axis_size, center[0] + axis_size)
     ax.set_ylim(center[1] - axis_size, center[1] + axis_size)
     ax.set_zlim(center[2] - axis_size, center[2] + axis_size)
-    plt.show()
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    if show:
+        plt.show()
+    return ax
 
 
 def draw_frame(ax: axes3d.Axes3D, frame: np.ndarray, scale: float = .1):
