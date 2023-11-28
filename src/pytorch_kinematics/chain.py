@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -189,7 +189,7 @@ class Chain:
     @staticmethod
     def _get_joints(frame, exclude_fixed=True):
         joints = []
-        if exclude_fixed and frame.joint.joint_type != "fixed":
+        if not exclude_fixed or frame.joint.joint_type != "fixed":
             joints.append(frame.joint)
         for child in frame.children:
             joints.extend(Chain._get_joints(child))
@@ -285,6 +285,9 @@ class Chain:
             link_names.extend(Chain._get_link_names(child))
         return link_names
 
+    def get_joint_offset(self, chain_idx) -> Optional[torch.Tensor]:
+        return self.joint_offsets[chain_idx]
+
     def get_link_names(self):
         names = self._get_link_names(self._root)
         return sorted(set(names), key=names.index)
@@ -292,6 +295,18 @@ class Chain:
     @lru_cache
     def get_frame_indices(self, *frame_names):
         return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long, device=self.device)
+
+    def _get_jnt_transform(self, th) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        compute all joint transforms at once first in order to handle multiple joint types without branching,
+        we create all possible transforms for all joint types and then select the appropriate one for each joint.
+        Args:
+            th: The joint configuration to use
+
+        Returns: A tuple of revolute, prismatic joint transforms
+        """
+        axes_expanded = self.axes.unsqueeze(0).repeat(th.shape[0], 1, 1)
+        return axis_and_angle_to_matrix_44(axes_expanded, th), axis_and_d_to_pris_matrix(axes_expanded, th)
 
     def forward_kinematics(self, th, frame_indices: Optional = None):
         """
@@ -312,14 +327,7 @@ class Chain:
         th = self.ensure_tensor(th)
         th = torch.atleast_2d(th)
 
-        b = th.shape[0]
-        axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
-
-        # compute all joint transforms at once first
-        # in order to handle multiple joint types without branching, we create all possible transforms
-        # for all joint types and then select the appropriate one for each joint.
-        rev_jnt_transform = axis_and_angle_to_matrix_44(axes_expanded, th)
-        pris_jnt_transform = axis_and_d_to_pris_matrix(axes_expanded, th)
+        rev_jnt_transform, pris_jnt_transform = self._get_jnt_transform(th)
 
         frame_transforms = {}
         b = th.shape[0]
@@ -335,7 +343,7 @@ class Chain:
                     if link_offset_i is not None:
                         frame_transform = frame_transform @ link_offset_i
 
-                    joint_offset_i = self.joint_offsets[chain_idx]
+                    joint_offset_i = self.get_joint_offset(chain_idx)
                     if joint_offset_i is not None:
                         frame_transform = frame_transform @ joint_offset_i
 
