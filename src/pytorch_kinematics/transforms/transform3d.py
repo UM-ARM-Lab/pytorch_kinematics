@@ -221,7 +221,7 @@ class Transform3d:
         return self.get_matrix().shape[0]
 
     def __getitem__(self, item):
-        return self.__class__(matrix=self.get_matrix()[item])
+        return Transform3d(matrix=self.get_matrix()[item])
 
     def __repr__(self):
         m = self.get_matrix()

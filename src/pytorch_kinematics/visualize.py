@@ -6,7 +6,7 @@ from mpl_toolkits.mplot3d import axes3d
 import numpy as np
 
 
-def visualize(frames: np.ndarray, show: bool = False) -> plt.Axes:
+def visualize(frames: np.ndarray, show: bool = False, **kwargs) -> plt.Axes:
     """
     Visualizes a sequence of frames.
     Args:
@@ -23,9 +23,9 @@ def visualize(frames: np.ndarray, show: bool = False) -> plt.Axes:
     frames = frames.reshape(-1, 4, 4)
     num_frames = frames.shape[0]
     for i, frame in enumerate(frames):
-        draw_frame(ax, frame, scale=frame_scale)
+        draw_frame(ax, frame, scale=frame_scale, **kwargs)
         if i < num_frames - 1:
-            draw_link(ax, frame[:3, 3], frames[i + 1][:3, 3])
+            draw_link(ax, frame[:3, 3], frames[i + 1][:3, 3], **kwargs)
     ax.set_xlim(center[0] - axis_size, center[0] + axis_size)
     ax.set_ylim(center[1] - axis_size, center[1] + axis_size)
     ax.set_zlim(center[2] - axis_size, center[2] + axis_size)
@@ -56,7 +56,7 @@ def draw_frame(ax: axes3d.Axes3D, frame: np.ndarray, scale: float = .1):
     ax.quiver(origin[0], origin[1], origin[2], z[0], z[1], z[2], length=scale, color='b')
 
 
-def draw_link(ax: axes3d.Axes3D, p0: np.ndarray, p1: np.ndarray):
+def draw_link(ax: axes3d.Axes3D, p0: np.ndarray, p1: np.ndarray, **kwargs):
     """
     Draws a line from p0 to p1.
     Args:
@@ -66,4 +66,5 @@ def draw_link(ax: axes3d.Axes3D, p0: np.ndarray, p1: np.ndarray):
 
     Returns: None
     """
-    ax.plot([p0[0], p1[0]], [p0[1], p1[1]], [p0[2], p1[2]], color='black', linewidth=3)
+    kwargs.setdefault('color', 'black')
+    ax.plot([p0[0], p1[0]], [p0[1], p1[1]], [p0[2], p1[2]], linewidth=3, **kwargs)

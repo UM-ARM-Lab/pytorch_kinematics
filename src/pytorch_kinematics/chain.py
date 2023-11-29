@@ -514,9 +514,9 @@ class SerialChain(Chain):
                     th[..., jnt_idx] = partial_th_i
         return frame_indices, th
 
-    def visualize(self, th: torch.Tensor):
+    def visualize(self, **kwargs):
         """Visualize the robot chain in joint configuration th."""
         from pytorch_kinematics.visualize import visualize
-        fk = self.forward_kinematics(th, end_only=False)
+        fk = self.forward_kinematics(end_only=False)
         arr = np.vstack([fk[f.name].get_matrix().cpu().detach().numpy() for f in self._serial_frames])
-        visualize(arr)
+        visualize(arr, **kwargs)

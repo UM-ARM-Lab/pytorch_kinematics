@@ -1,6 +1,6 @@
 # Author: Jonathan Külz
 # Date: 23.11.23
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -52,20 +52,20 @@ class DiffChain(SerialChain):
         joint_idx = self.joint_indices[chain_idx]
         if joint_idx == -1:  # This is not a parameterized, moving joint
             return self.joint_offsets[chain_idx]
-        return self.parameterized_offsets[:, joint_idx, :, :].get_matrix()
+        return self.parameterized_offsets[:, joint_idx, :, :].get_matrix().reshape(self.batch_size, 4, 4)
 
-    def forward_kinematics(self, th, end_only: bool = True) -> Transform3d:
+    def forward_kinematics(self, end_only: bool = True) -> Union[Transform3d, Dict[str, Transform3d]]:
         """Overrides the SerialChain method to ensure using the parameters of this chain."""
-        th = th.reshape((self.batch_size, self.n_joints))
-        self.set_joint_parameters(th)
-        return super().forward_kinematics(th, end_only)
-
-    def set_joint_parameters(self, th: torch.Tensor):
-        """
-        Overrides the parameters that describe the current joint configuration.
-        """
-        types = np.repeat(np.array([joint.joint_type for joint in self.get_joints()]).reshape(1, -1), self.batch_size, axis=0)
-        self.parameterized_offsets.update_joint_parameters(th, types)
+        transform = torch.eye(4).unsqueeze(0).repeat(self.batch_size, 1, 1)
+        ret = {}
+        for i, f in enumerate(self._serial_frames):
+            offset = self.get_joint_offset(i)
+            if offset is not None:
+                transform = torch.matmul(transform, offset)
+            ret[f.name] = Transform3d(matrix=transform)
+        if end_only:
+            return ret[self._serial_frames[-1].name]
+        return ret
 
     def __setup(self):
         """Ensure that all parameters are differentiable -- create a single leaf node containing all parameters."""

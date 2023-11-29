@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
+from functools import lru_cache
 from typing import Collection, Optional, Tuple, Union
 
 import numpy as np
@@ -38,7 +39,7 @@ class ParameterizedTransform(Transform3d, ABC):
             default_batch_size: Tuple[int, int] = (1, 1)
     ):
         """Initialize a ParameterizedTransform."""
-        super().__init__(dtype=dtype, device=device)
+        super().__init__(dtype=dtype, device=device, matrix=matrix)
 
         if parameters is None:
             parameters = torch.zeros(*default_batch_size, self.get_num_parameters(), dtype=dtype, device=device)
@@ -49,12 +50,10 @@ class ParameterizedTransform(Transform3d, ABC):
 
         self.requires_grad: bool = requires_grad
         self.parameters: torch.Tensor = parameters
-        if matrix is None:
-            matrix = self._create_matrix().to(dtype=dtype, device=device)
-        self._matrix: torch.Tensor = matrix
+        self._matrix = None
 
     @abstractmethod
-    def _create_matrix(self) -> torch.Tensor:
+    def get_matrix(self) -> torch.Tensor:
         """Returns the matrix representation of the transform."""
 
     @abstractmethod
@@ -111,7 +110,7 @@ class ParameterizedTransform(Transform3d, ABC):
 
     def __repr__(self) -> str:
         """Returns a string representation of the transform."""
-        info = ', '.join([f'{name}={self.parameters[:, i]}' for i, name in enumerate(self.parameter_names)])
+        info = ', '.join([f'{name}={self.parameters[..., i]}' for i, name in enumerate(self.parameter_names)])
         return f"{self.__class__}({info})".replace('\n       ', '')
 
 
@@ -141,9 +140,10 @@ class MDHTransform(ParameterizedTransform):
         """Returns the link twist."""
         return self.parameters[:, 0]
 
-    def _create_matrix(self) -> torch.Tensor:
-        """Returns the matrix representation of the transform."""
-        return mdh_to_homogeneous(self.parameters)
+    def get_matrix(self) -> torch.Tensor:
+        """Returns the matrix representation of the transform. Redos the computation on every call"""
+        self._matrix = mdh_to_homogeneous(self.parameters)
+        return self._matrix
 
     def update_joint_parameters(self, th: torch.Tensor, joint_types: np.array):
         """Updates the parameters of the parameters according to joint configuration th."""
