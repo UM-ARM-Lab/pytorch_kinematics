@@ -221,7 +221,7 @@ class Transform3d:
         return self.get_matrix().shape[0]
 
     def __getitem__(self, item):
-        return Transform3d(matrix=self.get_matrix()[item])
+        return self.__class__(matrix=self.get_matrix()[item])
 
     def __repr__(self):
         m = self.get_matrix()
@@ -343,7 +343,7 @@ class Transform3d:
     def stack(self, *others):
         transforms = [self] + list(others)
         matrix = torch.cat([t._matrix for t in transforms], dim=0)
-        out = Transform3d()
+        out = self.__class__()
         out._matrix = matrix
         return out
 
