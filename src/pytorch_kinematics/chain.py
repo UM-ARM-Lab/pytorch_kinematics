@@ -7,6 +7,7 @@ import torch
 import pytorch_kinematics.transforms as tf
 from pytorch_kinematics import jacobian
 from pytorch_kinematics.frame import Frame, Link, Joint
+from pytorch_kinematics.transforms.parameterized_transform import ParameterizedTransform
 from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_44, axis_and_d_to_pris_matrix
 
 
@@ -23,6 +24,8 @@ def get_n_joints(th):
         return th.shape[-1]
     elif isinstance(th, list) or isinstance(th, dict):
         return len(th)
+    elif isinstance(th, ParameterizedTransform):
+        return th.parameters.shape[1]
     else:
         raise NotImplementedError(f"Unsupported type {type(th)}")
 
@@ -36,6 +39,8 @@ def get_batch_size(th):
     elif isinstance(th, list):
         # Lists cannot be batched. We don't allow lists of lists.
         return 1
+    elif isinstance(th, ParameterizedTransform):
+        return th.parameters.shape[0]
     else:
         raise NotImplementedError(f"Unsupported type {type(th)}")
 
@@ -285,9 +290,6 @@ class Chain:
             link_names.extend(Chain._get_link_names(child))
         return link_names
 
-    def get_joint_offset(self, chain_idx) -> Optional[torch.Tensor]:
-        return self.joint_offsets[chain_idx]
-
     def get_link_names(self):
         names = self._get_link_names(self._root)
         return sorted(set(names), key=names.index)
@@ -324,15 +326,21 @@ class Chain:
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
 
-        th = self.ensure_tensor(th)
-        th = torch.atleast_2d(th)
-
-        rev_jnt_transform, pris_jnt_transform = self._get_jnt_transform(th)
+        if isinstance(th, ParameterizedTransform):
+            diff_offsets = True
+            b = th.parameters.shape[0]
+            device = th.parameters.device
+        else:
+            diff_offsets = False
+            th = self.ensure_tensor(th)
+            th = torch.atleast_2d(th)
+            rev_jnt_transform, pris_jnt_transform = self._get_jnt_transform(th)
+            b = th.shape[0]
+            device = th.device
 
         frame_transforms = {}
-        b = th.shape[0]
         for frame_idx in frame_indices:
-            frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
+            frame_transform = torch.eye(4).to(device).unsqueeze(0).repeat(b, 1, 1)
 
             # iterate down the list and compose the transform
             for chain_idx in self.parents_indices[frame_idx.item()]:
@@ -343,20 +351,25 @@ class Chain:
                     if link_offset_i is not None:
                         frame_transform = frame_transform @ link_offset_i
 
-                    joint_offset_i = self.get_joint_offset(chain_idx)
+                    if diff_offsets:
+                        jnt_idx = self.joint_indices[chain_idx]
+                        joint_offset_i = th.get_matrix()[:, jnt_idx, :, :]
+                    else:
+                        joint_offset_i = self.joint_offsets[chain_idx]
                     if joint_offset_i is not None:
                         frame_transform = frame_transform @ joint_offset_i
 
-                    jnt_idx = self.joint_indices[chain_idx]
-                    jnt_type = self.joint_type_indices[chain_idx]
-                    if jnt_type == 0:
-                        pass
-                    elif jnt_type == 1:
-                        jnt_transform_i = rev_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
-                    elif jnt_type == 2:
-                        jnt_transform_i = pris_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
+                    if not diff_offsets:
+                        jnt_idx = self.joint_indices[chain_idx]
+                        jnt_type = self.joint_type_indices[chain_idx]
+                        if jnt_type == 0:
+                            pass
+                        elif jnt_type == 1:
+                            jnt_transform_i = rev_jnt_transform[:, jnt_idx]
+                            frame_transform = frame_transform @ jnt_transform_i
+                        elif jnt_type == 2:
+                            jnt_transform_i = pris_jnt_transform[:, jnt_idx]
+                            frame_transform = frame_transform @ jnt_transform_i
 
             frame_transforms[frame_idx.item()] = frame_transform
 
@@ -514,9 +527,9 @@ class SerialChain(Chain):
                     th[..., jnt_idx] = partial_th_i
         return frame_indices, th
 
-    def visualize(self, **kwargs):
+    def visualize(self, th, **kwargs):
         """Visualize the robot chain in joint configuration th."""
         from pytorch_kinematics.visualize import visualize
-        fk = self.forward_kinematics(end_only=False)
+        fk = self.forward_kinematics(th, end_only=False)
         arr = np.vstack([fk[f.name].get_matrix().cpu().detach().numpy() for f in self._serial_frames])
         visualize(arr, **kwargs)
