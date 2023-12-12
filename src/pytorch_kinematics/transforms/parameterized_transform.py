@@ -92,6 +92,10 @@ class ParameterizedTransform(Transform3d, ABC):
         other._parameters = parameters
         return other
 
+    def toTransform3d(self):
+        """Returns a Transform3d object with the same matrix as this ParameterizedTransform."""
+        return Transform3d(matrix=self.get_matrix(), dtype=self.dtype, device=self.device)
+
     @property
     def parameters(self) -> torch.Tensor:
         """Returns the joint parameters"""
@@ -100,13 +104,18 @@ class ParameterizedTransform(Transform3d, ABC):
     @parameters.setter
     def parameters(self, parameters: torch.Tensor):
         """Sets the joint parameters"""
-        parameters.requires_grad = self.requires_grad
+        if parameters.requires_grad != self.requires_grad:
+            # This check allows to set non-leaf parameters and is necessary for example for __getitem__
+            parameters.requires_grad = self.requires_grad
         self._parameters = parameters
 
     @classmethod
     def get_num_parameters(cls) -> int:
         """Returns the number of parameters"""
         return len(cls.parameter_names)
+
+    def __getitem__(self, item):
+        return self.__class__(parameters=self.parameters[item], dtype=self.dtype, device=self.device)
 
     def __repr__(self) -> str:
         """Returns a string representation of the transform."""

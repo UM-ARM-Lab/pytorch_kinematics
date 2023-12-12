@@ -357,7 +357,7 @@ class Chain:
         if th is None:
             th = torch.zeros([b, self.n_joints], device=self.device, dtype=self.dtype)
         if joint_offsets is None:
-            joint_offsets = {chain_idx: self.get_joint_offset(chain_idx) for chain_idx in range(len(self.joint_offsets))}
+            joint_offsets = self.joint_offsets
         if link_offsets is None:
             link_offsets = self.link_offsets
 
@@ -522,6 +522,11 @@ class SerialChain(Chain):
             link_names: The names of the links. If None, the links are named "link_0", "link_1", etc.
             joint_types: The types of the joints. If None, the joints are assumed to be revolute.
         """
+        if isinstance(transforms, tf.parameterized_transform.ParameterizedTransform):
+            transforms = transforms.toTransform3d()
+        if isinstance(link_offsets, tf.parameterized_transform.ParameterizedTransform):
+            link_offsets = link_offsets.toTransform3d()
+
         joint_offsets = transforms.get_matrix()
         n = joint_offsets.shape[0]
         if link_offsets is None:
@@ -543,7 +548,7 @@ class SerialChain(Chain):
             frame.children = children
             children = [frame]
         root_frame.children = children
-        return cls(Chain(root_frame, **kwargs), link_names[-1], root_frame_name="root")
+        return cls(Chain(root_frame, **kwargs), link_names[-1], root_frame_name="world")
 
     def jacobian(self, th, locations=None):
         if locations is not None:
