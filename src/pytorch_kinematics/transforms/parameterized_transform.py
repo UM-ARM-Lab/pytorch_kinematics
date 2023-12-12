@@ -142,7 +142,7 @@ class MDHTransform(ParameterizedTransform):
 
     def get_matrix(self) -> torch.Tensor:
         """Returns the matrix representation of the transform. Redos the computation on every call"""
-        self._matrix = mdh_to_homogeneous(self.parameters)
+        self._matrix = mdh_to_homogeneous(self.parameters).view(-1, 4, 4)
         return self._matrix
 
     def update_joint_parameters(self, th: torch.Tensor, joint_types: np.array):

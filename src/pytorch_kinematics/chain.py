@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Optional, Sequence, Tuple
+from typing import Collection, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -308,12 +308,20 @@ class Chain:
         axes_expanded = self.axes.unsqueeze(0).repeat(th.shape[0], 1, 1)
         return axis_and_angle_to_matrix_44(axes_expanded, th), axis_and_d_to_pris_matrix(axes_expanded, th)
 
-    def forward_kinematics(self, th, frame_indices: Optional = None):
+    def forward_kinematics(self,
+                           th: Optional[torch.Tensor] = None,
+                           joint_offsets: Optional[Union[torch.Tensor, tf.Transform3d]] = None,
+                           link_offsets: Optional[Union[torch.Tensor, tf.Transform3d]] = None,
+                           frame_indices: Optional = None):
         """
-        Compute forward kinematics for the given joint values.
+        Compute forward kinematics for the given any combination of joint values, joint offsets, and link offsets.
 
         Args:
             th: A dict, list, numpy array, or torch tensor of joints values. Possibly batched.
+            joint_offsets: A Transform3d object or a tensor of shape (N, 4, 4) where N is the number of joints.
+                If provided, overrides the joint offsets in the chain.
+            link_offsets: A Transform3d object or a tensor of shape (N, 4, 4) where N is the number of joints.
+                If provided, overrides the link offsets in the chain.
             frame_indices: A list of frame indices to compute transforms for. If None, all frames are computed.
                 Use `get_frame_indices` to convert from frame names to frame indices.
 
@@ -324,13 +332,33 @@ class Chain:
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
 
-        th = self.ensure_tensor(th)
-        th = torch.atleast_2d(th)
+        if isinstance(joint_offsets, tf.Transform3d):
+            joint_offsets = joint_offsets.get_matrix()
+        if isinstance(link_offsets, tf.Transform3d):
+            link_offsets = link_offsets.get_matrix()
+
+        if th is joint_offsets is link_offsets is None:
+            raise ValueError("Must provide at least one of th, joint_offsets, or link_offsets.")
+        if th is not None:
+            b = th.shape[0]
+            th = self.ensure_tensor(th)
+            th = torch.atleast_2d(th)
+        elif joint_offsets is not None:
+            b = joint_offsets.shape[0]
+        else:
+            b = link_offsets.shape[0]
+
+        # initialize default values
+        if th is None:
+            th = torch.zeros([b, self.n_joints], device=self.device, dtype=self.dtype)
+        if joint_offsets is None:
+            joint_offsets = {chain_idx: self.get_joint_offset(chain_idx) for chain_idx in range(len(self.joint_offsets))}
+        if link_offsets is None:
+            link_offsets = self.link_offsets
 
         rev_jnt_transform, pris_jnt_transform = self._get_jnt_transform(th)
 
         frame_transforms = {}
-        b = th.shape[0]
         for frame_idx in frame_indices:
             frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
 
@@ -339,11 +367,11 @@ class Chain:
                 if chain_idx.item() in frame_transforms:
                     frame_transform = frame_transforms[chain_idx.item()]
                 else:
-                    link_offset_i = self.link_offsets[chain_idx]
+                    link_offset_i = link_offsets[chain_idx]
                     if link_offset_i is not None:
                         frame_transform = frame_transform @ link_offset_i
 
-                    joint_offset_i = self.get_joint_offset(chain_idx)
+                    joint_offset_i = joint_offsets[chain_idx.item()]
                     if joint_offset_i is not None:
                         frame_transform = frame_transform @ joint_offset_i
 
@@ -466,35 +494,86 @@ class SerialChain(Chain):
                     return [child] + frames
         return None
 
+    @classmethod
+    def from_joint_transforms(cls,
+                              transforms: tf.Transform3d,
+                              link_offsets: Optional[tf.Transform3d] = None,
+                              joint_names: Optional[Collection[str]] = None,
+                              link_names: Optional[Collection[str]] = None,
+                              joint_types: Optional[Collection[str]] = None,
+                              **kwargs
+                              ):
+        """
+        Create a serial chain with zero link offsets and joint offsets according to the input.
+
+        Assumes that frame 0 is the root frame that contains an empty link and a fixed "world" joint. Accordingly, frame
+        i is aligned with joint i, which moves. All joint axes are aligned with the z-axis of the joint frame.
+        Args:
+            transforms: A transform that represents a matrix of shape (N, 4, 4) where N is the number of joints.
+            link_offsets: A transform that represents a matrix of shape (N, 4, 4) where N is the number of joints.
+                Optional. If None, all link offsets are assumed to be zero.
+            joint_names: The names of the joints. If None, the joints are named "joint_0", "joint_1", etc.
+            link_names: The names of the links. If None, the links are named "link_0", "link_1", etc.
+            joint_types: The types of the joints. If None, the joints are assumed to be revolute.
+        """
+        joint_offsets = transforms.get_matrix()
+        n = joint_offsets.shape[0]
+        if link_offsets is None:
+            link_offsets = [None] * n
+        if joint_names is None:
+            joint_names = [f"joint_{i+1}" for i in range(n)]
+        if link_names is None:
+            link_names = [f"link_{i+1}" for i in range(n)]
+        if joint_types is None:
+            joint_types = ['revolute' for _ in range(n)]
+        root_frame = Frame(name="world")
+        root_frame.link = Link(name="world")
+        root_frame.joint = Joint(name="world", joint_type="fixed")
+        children = []
+        for (i, link, joint, joint_type) in reversed(list(zip(range(n), link_names, joint_names, joint_types))):
+            frame = Frame(name=f"{link}")
+            frame.link = Link(name=link, offset=link_offsets[i])
+            frame.joint = Joint(name=joint, offset=transforms[i], joint_type=joint_type)
+            frame.children = children
+            children = [frame]
+        root_frame.children = children
+        return cls(Chain(root_frame, **kwargs), link_names[-1], root_frame_name="root")
+
     def jacobian(self, th, locations=None):
         if locations is not None:
             locations = tf.Transform3d(pos=locations)
         return jacobian.calc_jacobian(self, th, tool=locations)
 
-    def forward_kinematics(self, th, end_only: bool = True):
+    def forward_kinematics(self,
+                           th: Optional[torch.Tensor] = None,
+                           joint_offsets: Optional[torch.Tensor] = None,
+                           link_offsets: Optional[torch.Tensor] = None,
+                           end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
-        frame_indices, th = self.convert_serial_inputs_to_chain_inputs(th, end_only)
-
-        mat = super().forward_kinematics(th, frame_indices)
-
-        if end_only:
-            return mat[self._serial_frames[-1].name]
-        else:
-            return mat
-
-    def convert_serial_inputs_to_chain_inputs(self, th, end_only: bool):
-        # th = self.ensure_tensor(th)
-        th_b = get_batch_size(th)
-        th_n_joints = get_n_joints(th)
-        if isinstance(th, list):
-            th = torch.tensor(th, device=self.device, dtype=self.dtype)
-
         if end_only:
             frame_indices = self.get_frame_indices(self._serial_frames[-1].name)
         else:
             # pass through default behavior for frame indices being None, which is currently
             # to return all frames.
             frame_indices = None
+        if th is not None:
+            th = self.convert_serial_inputs_to_chain_inputs(th)
+
+        mat = super().forward_kinematics(th, joint_offsets=joint_offsets, link_offsets=link_offsets,
+                                         frame_indices=frame_indices)
+
+        if end_only:
+            return mat[self._serial_frames[-1].name]
+        else:
+            return mat
+
+    def convert_serial_inputs_to_chain_inputs(self, th: torch.Tensor):
+        # th = self.ensure_tensor(th)
+        th_b = get_batch_size(th)
+        th_n_joints = get_n_joints(th)
+        if isinstance(th, list):
+            th = torch.tensor(th, device=self.device, dtype=self.dtype)
+
         if th_n_joints < self.n_joints:
             # if th is only a partial list of joints, assume it's a list of joints for only the serial chain.
             partial_th = th
@@ -512,7 +591,7 @@ class SerialChain(Chain):
                 jnt_idx = self.joint_indices[k]
                 if frame.joint.joint_type != 'fixed':
                     th[..., jnt_idx] = partial_th_i
-        return frame_indices, th
+        return th
 
     def visualize(self, **kwargs):
         """Visualize the robot chain in joint configuration th."""
