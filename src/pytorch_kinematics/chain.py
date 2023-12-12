@@ -24,8 +24,6 @@ def get_n_joints(th):
         return th.shape[-1]
     elif isinstance(th, list) or isinstance(th, dict):
         return len(th)
-    elif isinstance(th, ParameterizedTransform):
-        return th.parameters.shape[1]
     else:
         raise NotImplementedError(f"Unsupported type {type(th)}")
 
@@ -39,8 +37,6 @@ def get_batch_size(th):
     elif isinstance(th, list):
         # Lists cannot be batched. We don't allow lists of lists.
         return 1
-    elif isinstance(th, ParameterizedTransform):
-        return th.parameters.shape[0]
     else:
         raise NotImplementedError(f"Unsupported type {type(th)}")
 
@@ -331,20 +327,25 @@ class Chain:
             A dict of Transform3d objects for each frame.
 
         """
+        def get_ith_transform(offset, i):
+            if isinstance(offset, torch.Tensor):
+                return offset[:, i, ...]
+            return offset[i]
+
         if frame_indices is None:
             frame_indices = self.get_all_frame_indices()
 
         if isinstance(joint_offsets, tf.Transform3d):
-            joint_offsets = joint_offsets.get_matrix()
+            joint_offsets = joint_offsets.get_matrix().view(-1, len(self.joint_offsets), 4, 4)
         if isinstance(link_offsets, tf.Transform3d):
-            link_offsets = link_offsets.get_matrix()
+            link_offsets = link_offsets.get_matrix().view(-1, len(self.link_offsets), 4, 4)
 
         if th is joint_offsets is link_offsets is None:
             raise ValueError("Must provide at least one of th, joint_offsets, or link_offsets.")
         if th is not None:
-            b = th.shape[0]
             th = self.ensure_tensor(th)
             th = torch.atleast_2d(th)
+            b = th.shape[0]
             to_this = th
         elif joint_offsets is not None:
             b = joint_offsets.shape[0]
@@ -372,11 +373,11 @@ class Chain:
                 if chain_idx.item() in frame_transforms:
                     frame_transform = frame_transforms[chain_idx.item()]
                 else:
-                    link_offset_i = link_offsets[chain_idx]
+                    link_offset_i = get_ith_transform(link_offsets, chain_idx)
                     if link_offset_i is not None:
                         frame_transform = frame_transform @ link_offset_i
 
-                    joint_offset_i = joint_offsets[chain_idx.item()]
+                    joint_offset_i = get_ith_transform(joint_offsets, chain_idx)
 
                     if joint_offset_i is not None:
                         frame_transform = frame_transform @ joint_offset_i
@@ -603,10 +604,3 @@ class SerialChain(Chain):
                 if frame.joint.joint_type != 'fixed':
                     th[..., jnt_idx] = partial_th_i
         return th
-
-    def visualize(self, th, **kwargs):
-        """Visualize the robot chain in joint configuration th."""
-        from pytorch_kinematics.visualize import visualize
-        fk = self.forward_kinematics(th, end_only=False)
-        arr = np.vstack([fk[f.name].get_matrix().cpu().detach().numpy() for f in self._serial_frames])
-        visualize(arr, **kwargs)

@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 # Author: Jonathan Külz
 # Date: 27.11.23
+from typing import Collection
+
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 import numpy as np
 
+from pytorch_kinematics import Transform3d
 
-def visualize(frames: np.ndarray, show: bool = False, **kwargs) -> plt.Axes:
+
+def visualize(frames: Transform3d, show: bool = False, **kwargs) -> plt.Axes:
     """
     Visualizes a sequence of frames.
     Args:
-        frames: An nx4x4 array of frame placements. Assumes the first frame is the base frame (no implicit world frame
-        is assumed).
+        frames: The forward kinematics transforms of a single robot.
         show: Whether to show the plot.
 
     Returns: None
     """
+    frames = np.vstack([f.get_matrix().cpu().detach().numpy() for f in frames])
     axis_size = np.max(frames[:, :3, 3]) - np.min(frames[:, :3, 3]) * .8
     center = np.mean(frames[:, :3, 3], axis=0)
     frame_scale = axis_size / 15
     ax = plt.figure(figsize=(12, 12)).add_subplot(projection='3d')
     frames = frames.reshape(-1, 4, 4)
     num_frames = frames.shape[0]
+    draw_base(ax, scale=frame_scale, **kwargs)
     for i, frame in enumerate(frames):
         draw_frame(ax, frame, scale=frame_scale, **kwargs)
         if i < num_frames - 1:
@@ -35,6 +40,15 @@ def visualize(frames: np.ndarray, show: bool = False, **kwargs) -> plt.Axes:
     if show:
         plt.show()
     return ax
+
+
+def draw_base(ax: axes3d.Axes3D, scale: float = .1, **kwargs):
+    """Draw a sphere of radius scale at the origin."""
+    u, v = np.mgrid[0:2 * np.pi:20j, 0:np.pi:10j]
+    x = scale * np.cos(u) * np.sin(v)
+    y = scale * np.sin(u) * np.sin(v)
+    z = scale * np.cos(v)
+    ax.plot_wireframe(x, y, z, color='gray')
 
 
 def draw_frame(ax: axes3d.Axes3D, frame: np.ndarray, scale: float = .1):
@@ -51,9 +65,9 @@ def draw_frame(ax: axes3d.Axes3D, frame: np.ndarray, scale: float = .1):
     x = frame[:3, 0]
     y = frame[:3, 1]
     z = frame[:3, 2]
-    ax.quiver(origin[0], origin[1], origin[2], x[0], x[1], x[2], length=scale, color='r')
-    ax.quiver(origin[0], origin[1], origin[2], y[0], y[1], y[2], length=scale, color='g')
-    ax.quiver(origin[0], origin[1], origin[2], z[0], z[1], z[2], length=scale, color='b')
+    ax.quiver(origin[0], origin[1], origin[2], x[0], x[1], x[2], length=scale, color='r', linewidths=3)
+    ax.quiver(origin[0], origin[1], origin[2], y[0], y[1], y[2], length=scale, color='g', linewidths=3)
+    ax.quiver(origin[0], origin[1], origin[2], z[0], z[1], z[2], length=scale, color='b', linewidths=3)
 
 
 def draw_link(ax: axes3d.Axes3D, p0: np.ndarray, p1: np.ndarray, **kwargs):

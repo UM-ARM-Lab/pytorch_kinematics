@@ -68,27 +68,26 @@ class ParameterizedTransform(Transform3d, ABC):
             new ParameterizedTransform object.
         """
         other = self.__class__(dtype=self.dtype, device=self.device, requires_grad=self.requires_grad)
-        other._matrix = self._matrix.clone()
+        other._matrix = self.get_matrix()
         other._parameters = self._parameters.clone()
         if self._lu is not None:
             other._lu = [elem.clone() for elem in self._lu]
         return other
 
-    def stack(self, *others):
+    def stack(self, *others, dim=0):
         """
         Stacks multiple ParameterizedTransform objects together.
 
         Args:
             others: ParameterizedTransform objects to stack.
+            dim: Dimension along which to stack. Can be 0 for batch and 1 for joints.
 
         Returns:
             new ParameterizedTransform object.
         """
         other = self.__class__(dtype=self.dtype, device=self.device, requires_grad=self.requires_grad)
         transforms = [self] + list(others)
-        matrix = torch.cat([t._matrix for t in transforms], dim=0)
-        parameters = torch.cat([t._parameters for t in transforms], dim=0)
-        other._matrix = matrix
+        parameters = torch.cat([t._parameters for t in transforms], dim=dim)
         other._parameters = parameters
         return other
 
@@ -132,22 +131,22 @@ class MDHTransform(ParameterizedTransform):
     @property
     def theta(self):
         """Returns the joint angle."""
-        return self.parameters[:, 3]
+        return self.parameters[..., 3]
 
     @property
     def d(self):
         """Returns the joint offset."""
-        return self.parameters[:, 2]
+        return self.parameters[..., 2]
 
     @property
     def a(self):
         """Returns the link length."""
-        return self.parameters[:, 1]
+        return self.parameters[..., 1]
 
     @property
     def alpha(self):
         """Returns the link twist."""
-        return self.parameters[:, 0]
+        return self.parameters[..., 0]
 
     def get_matrix(self) -> torch.Tensor:
         """Returns the matrix representation of the transform. Redos the computation on every call"""
