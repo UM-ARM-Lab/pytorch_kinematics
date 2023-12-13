@@ -303,7 +303,7 @@ class Chain:
 
         Returns: A tuple of revolute, prismatic joint transforms
         """
-        axes_expanded = self.axes.unsqueeze(0).repeat(th.shape[0], 1, 1)
+        axes_expanded = self.axes.unsqueeze(0).repeat(th.shape[0], 1, 1).to(th)
         return axis_and_angle_to_matrix_44(axes_expanded, th), axis_and_d_to_pris_matrix(axes_expanded, th)
 
     def forward_kinematics(self,
@@ -356,7 +356,7 @@ class Chain:
 
         # initialize default values
         if th is None:
-            th = torch.zeros([b, self.n_joints], device=self.device, dtype=self.dtype)
+            th = torch.zeros([b, self.n_joints]).to(to_this)
         if joint_offsets is None:
             joint_offsets = self.joint_offsets
         if link_offsets is None:
@@ -523,15 +523,17 @@ class SerialChain(Chain):
             link_names: The names of the links. If None, the links are named "link_0", "link_1", etc.
             joint_types: The types of the joints. If None, the joints are assumed to be revolute.
         """
-        if isinstance(transforms, tf.parameterized_transform.ParameterizedTransform):
-            transforms = transforms.toTransform3d()
-        if isinstance(link_offsets, tf.parameterized_transform.ParameterizedTransform):
-            link_offsets = link_offsets.toTransform3d()
+        device = kwargs.get('device', transforms.device)
+        dtype = kwargs.get('dtype', transforms.dtype)
 
+        transforms = transforms.to(device=device, dtype=dtype)
         joint_offsets = transforms.get_matrix()
+        assert len(joint_offsets.shape) == 3, "Expected a 3D matrix of shape (N, 4, 4)."
         n = joint_offsets.shape[0]
         if link_offsets is None:
             link_offsets = [None] * n
+        else:
+            link_offsets = link_offsets.to(device=device, dtype=dtype)
         if joint_names is None:
             joint_names = [f"joint_{i+1}" for i in range(n)]
         if link_names is None:

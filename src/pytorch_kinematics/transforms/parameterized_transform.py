@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 from functools import lru_cache
-from typing import Collection, Optional, Tuple, Union
+from typing import Collection, Iterable, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -36,20 +36,20 @@ class ParameterizedTransform(Transform3d, ABC):
             device: str = 'cpu',
             requires_grad: bool = True,
             matrix: Optional[torch.Tensor] = None,
-            default_batch_size: Tuple[int, int] = (1, 1)
+            default_batch_size: Union[Tuple[int], Tuple[int, int]] = (1, 1)
     ):
         """Initialize a ParameterizedTransform."""
         super().__init__(dtype=dtype, device=device, matrix=matrix)
+        assert len(default_batch_size) in (1, 2), "default_batch_size must be a tuple of length 1 or 2"
 
         if parameters is None:
-            parameters = torch.zeros(*default_batch_size, self.get_num_parameters(), dtype=dtype, device=device)
-        if parameters.ndim == 1:
-            parameters = parameters.unsqueeze(0)
-        if parameters.ndim == 2:
+            parameters = torch.zeros(*default_batch_size, self.get_num_parameters())
+        while parameters.ndim < 1 + len(default_batch_size):
             parameters = parameters.unsqueeze(0)
 
+        self.default_batch_size: Union[Tuple[int], Tuple[int, int]] = default_batch_size
         self.requires_grad: bool = requires_grad
-        self.parameters: torch.Tensor = parameters
+        self.parameters: torch.Tensor = parameters.to(self.device, self.dtype)
         self._matrix = None
 
     @abstractmethod
@@ -69,7 +69,7 @@ class ParameterizedTransform(Transform3d, ABC):
         """
         other = self.__class__(dtype=self.dtype, device=self.device, requires_grad=self.requires_grad)
         other._matrix = self.get_matrix()
-        other._parameters = self._parameters.clone()
+        other.parameters = self._parameters.detach().clone()
         if self._lu is not None:
             other._lu = [elem.clone() for elem in self._lu]
         return other
@@ -87,13 +87,26 @@ class ParameterizedTransform(Transform3d, ABC):
         """
         other = self.__class__(dtype=self.dtype, device=self.device, requires_grad=self.requires_grad)
         transforms = [self] + list(others)
-        parameters = torch.cat([t._parameters for t in transforms], dim=dim)
+        parameters = torch.cat([t._parameters for t in transforms], dim=dim).to(self.device, dtype=self.dtype)
         other._parameters = parameters
+        return other
+
+    def to(self, device, copy: bool = False, dtype=None):
+        """Makes sure to also set parameters to the correct device."""
+        other = super().to(device, copy, dtype)
+        if other is self and other._parameters.device == device and (dtype is None or dtype == other._parameters.dtype):
+            return self
+        other.parameters = self._parameters.detach().to(device, dtype)
         return other
 
     def toTransform3d(self):
         """Returns a Transform3d object with the same matrix as this ParameterizedTransform."""
         return Transform3d(matrix=self.get_matrix(), dtype=self.dtype, device=self.device)
+
+    @property
+    def num_batch_levels(self) -> int:
+        """Returns the number of batch levels."""
+        return len(self.default_batch_size)
 
     @property
     def parameters(self) -> torch.Tensor:
@@ -114,8 +127,10 @@ class ParameterizedTransform(Transform3d, ABC):
         return len(cls.parameter_names)
 
     def __getitem__(self, item):
-        item = [i if not isinstance(i, int) else slice(i, i + 1) for i in item]  # Make sure to not loose dimensions
-        return self.__class__(parameters=self.parameters[item], dtype=self.dtype, device=self.device)
+        if isinstance(item, Iterable):
+            item = [i if not isinstance(i, int) else slice(i, i + 1) for i in item]  # Make sure to not lose dimensions
+        return self.__class__(parameters=self.parameters[item], dtype=self.dtype, device=self.device,
+                              default_batch_size=self.default_batch_size)
 
     def __repr__(self) -> str:
         """Returns a string representation of the transform."""
@@ -152,7 +167,10 @@ class MDHTransform(ParameterizedTransform):
     def get_matrix(self) -> torch.Tensor:
         """Returns the matrix representation of the transform. Redos the computation on every call"""
         b = self.parameters.shape[0]
-        self._matrix = torch.squeeze(mdh_to_homogeneous(self.parameters).view(b, -1, 4, 4))
+        if self.num_batch_levels == 1:
+            self._matrix = mdh_to_homogeneous(self.parameters).view(b, 4, 4)
+        else:
+            self._matrix = mdh_to_homogeneous(self.parameters).view(b, -1, 4, 4)
         return self._matrix
 
     def update_joint_parameters(self, th: torch.Tensor, joint_types: np.array):
