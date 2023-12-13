@@ -114,6 +114,7 @@ class ParameterizedTransform(Transform3d, ABC):
         return len(cls.parameter_names)
 
     def __getitem__(self, item):
+        item = [i if not isinstance(i, int) else slice(i, i + 1) for i in item]  # Make sure to not loose dimensions
         return self.__class__(parameters=self.parameters[item], dtype=self.dtype, device=self.device)
 
     def __repr__(self) -> str:
@@ -150,7 +151,8 @@ class MDHTransform(ParameterizedTransform):
 
     def get_matrix(self) -> torch.Tensor:
         """Returns the matrix representation of the transform. Redos the computation on every call"""
-        self._matrix = mdh_to_homogeneous(self.parameters).view(-1, 4, 4)
+        b = self.parameters.shape[0]
+        self._matrix = torch.squeeze(mdh_to_homogeneous(self.parameters).view(b, -1, 4, 4))
         return self._matrix
 
     def update_joint_parameters(self, th: torch.Tensor, joint_types: np.array):
