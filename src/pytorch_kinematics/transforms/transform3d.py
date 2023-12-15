@@ -293,8 +293,9 @@ class Transform3d:
 
     def stack(self, *others):
         transforms = [self] + list(others)
-        matrix = torch.cat([t._matrix for t in transforms], dim=0)
-        out = Transform3d(matrix=matrix, device=self.device, dtype=self.dtype)
+        matrix = torch.cat([t._matrix for t in transforms], dim=0).to(self.device, self.dtype)
+        out = self.__class__(device=self.device, dtype=self.dtype)
+        out._matrix = matrix
         return out
 
     def transform_points(self, points, eps: Optional[float] = None):
