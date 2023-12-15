@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # Author: Jonathan Külz
 # Date: 27.11.23
-from typing import Collection
+from typing import Collection, Optional
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 import numpy as np
+import torch
 
 from pytorch_kinematics import Transform3d
 
 
-def visualize(frames: Transform3d, show: bool = False, **kwargs) -> plt.Axes:
+def visualize(frames: Transform3d, goal: Optional[torch.Tensor] = None, show: bool = False, **kwargs) -> plt.Axes:
     """
     Visualizes a sequence of frames.
     Args:
         frames: The forward kinematics transforms of a single robot.
+        goal: The goal to visualize.
         show: Whether to show the plot.
 
     Returns: None
@@ -27,6 +29,8 @@ def visualize(frames: Transform3d, show: bool = False, **kwargs) -> plt.Axes:
     frames = frames.reshape(-1, 4, 4)
     num_frames = frames.shape[0]
     draw_base(ax, scale=frame_scale, **kwargs)
+    if goal is not None:
+        draw_goal(ax, goal, scale=frame_scale, **kwargs)
     for i, frame in enumerate(frames):
         draw_frame(ax, frame, scale=frame_scale, **kwargs)
         if i < num_frames - 1:
@@ -49,6 +53,16 @@ def draw_base(ax: axes3d.Axes3D, scale: float = .1, **kwargs):
     y = scale * np.sin(u) * np.sin(v)
     z = scale * np.cos(v)
     ax.plot_wireframe(x, y, z, color='gray')
+
+
+def draw_goal(ax: axes3d.Axes3D, goal: torch.Tensor, scale: float = .1, **kwargs):
+    """Draw a sphere of radius scale at the origin."""
+    u, v = np.mgrid[0:2 * np.pi:10j, 0:np.pi:5j]
+    goal = np.squeeze(goal.cpu().detach().numpy())
+    x = goal[0] + scale * np.cos(u) * np.sin(v)
+    y = goal[1] + scale * np.sin(u) * np.sin(v)
+    z = goal[2] + scale * np.cos(v)
+    ax.plot_wireframe(x, y, z, color='red')
 
 
 def draw_frame(ax: axes3d.Axes3D, frame: np.ndarray, scale: float = .1):
