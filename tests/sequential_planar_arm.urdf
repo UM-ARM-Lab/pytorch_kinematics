@@ -1,0 +1,83 @@
+<?xml version="1.0"?>
+<robot name="simple">
+    <link name="base_link">
+    </link>
+
+    <link name="link0">
+        <visual>
+            <origin xyz="0.3 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="0.6 0.1 0.1"/>
+            </geometry>
+            <material name="g0">
+                <color rgba="0.5 0.5 0.5 1.0"/>
+            </material>
+        </visual>
+    </link>
+    <link name="link1">
+        <visual>
+            <origin xyz="0.3 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="0.6 0.1 0.1"/>
+            </geometry>
+            <material name="g1">
+                <color rgba="0.6 0.6 0.6 1.0"/>
+            </material>
+        </visual>
+    </link>
+    <link name="link2">
+        <visual>
+            <origin xyz="0.3 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="0.6 0.1 0.1"/>
+            </geometry>
+            <material name="g2">
+                <color rgba="0.7 0.7 0.7 1.0"/>
+            </material>
+        </visual>
+    </link>
+
+    <link name="eef">
+        <visual>
+            <origin xyz="0.2 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="0.4 0.2 0.2"/>
+            </geometry>
+            <material name="Cyan">
+                <color rgba="0 1.0 1.0 1.0"/>
+            </material>
+        </visual>
+    </link>
+
+    <joint name="base_to_link0" type="revolute">
+        <parent link="base_link"/>
+        <child link="link0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-1.0" upper="1.0" effort="1000.0" velocity="0.5"/>
+        <origin xyz="0.0 0.0 0.0"/>
+    </joint>
+    <joint name="l0_to_l1" type="revolute">
+        <parent link="link0"/>
+        <child link="link1"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-1.0" upper="1.0" effort="1000.0" velocity="0.5"/>
+        <origin xyz="0.6 0.0 0.0"/>
+    </joint>
+    <joint name="l1_to_l2" type="revolute">
+        <parent link="link1"/>
+        <child link="link2"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-1.0" upper="1.0" effort="1000.0" velocity="0.5"/>
+        <origin xyz="0.6 0.0 0.0"/>
+    </joint>
+
+    <joint name="ee" type="revolute">
+        <parent link="link2"/>
+        <child link="eef"/>
+        <axis xyz="0 0 1"/>
+        <origin xyz="0.6 0.0 0.0"/>
+        <limit lower="-1.0" upper="1.0" effort="1000.0" velocity="0.5"/>
+    </joint>
+
+
+</robot>
