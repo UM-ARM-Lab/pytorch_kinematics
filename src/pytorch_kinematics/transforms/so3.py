@@ -1,6 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 
-import warnings
 from typing import Tuple
 import torch
 
