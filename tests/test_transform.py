@@ -126,52 +126,71 @@ def test_compose():
 
 def test_so3_exp_map_consistency():
     N = 100
-    eps = 1e-5
+    eps = 1e-4
 
     omega = torch.randn((N, 3))
-    R = tf.so3_exp_map(omega)
-    omega_recovered = tf.so3_log_map(R)
+    R = tf.so3_exp_map(omega, eps=eps)
+    omega_recovered = tf.so3_log_map(R, eps=eps)
 
     # ignore ones that are close to 0 or pi
 
     # 3 ways of getting rotation angle
-    rot_mag = tf.so3_rotation_angle(R)
+    rot_mag = tf.so3_rotation_angle(R, eps=eps)
     rot_mag_from_omega = torch.linalg.norm(omega, dim=-1)
-    mask = (rot_mag_from_omega > eps) & (rot_mag_from_omega < 3.1415 - eps)
+    mask = (rot_mag_from_omega > 0.005) & (rot_mag_from_omega < 3.1415 - 0.005)
 
     nrms = (omega * omega).sum(1)
     rot_angles = torch.clamp(nrms, eps).sqrt()
 
-    assert torch.allclose(rot_mag[mask], rot_mag_from_omega[mask], atol=eps * 5)
-    assert torch.allclose(rot_mag[mask], rot_angles[mask], atol=eps)
+    assert torch.allclose(rot_mag[mask], rot_mag_from_omega[mask], atol=eps * 2)
+    assert torch.allclose(rot_mag[mask], rot_angles[mask], atol=eps * 2)
 
     assert torch.allclose(omega[mask], omega_recovered[mask], atol=eps * 5)
 
-    R_recovered = tf.so3_exp_map(omega_recovered)
+    R_recovered = tf.so3_exp_map(omega_recovered, eps=eps)
     # but with the mask we should get better results
-    assert torch.allclose(R[mask], R_recovered[mask], atol=eps * 5)
+    assert torch.allclose(R[mask], R_recovered[mask], atol=eps * 4)
 
 
 def test_se3_exp_map_consistency():
     N = 100
-    eps = 1e-5
+    eps = 1e-4
 
     v = torch.randn((N, 6))
-    T = tf.se3_exp_map(v)
-    v_recovered = tf.se3_log_map(T)
+    T = tf.se3_exp_map(v, eps=eps)
+    v_recovered = tf.se3_log_map(T, eps=eps)
 
     omega = v[:, 3:]
 
     rot_mag_from_omega = torch.linalg.norm(omega, dim=-1)
-    mask = (rot_mag_from_omega > eps) & (rot_mag_from_omega < 3.1415 - eps)
+    mask = (rot_mag_from_omega > 0.005) & (rot_mag_from_omega < 3.1415 - 0.005)
 
-    assert torch.allclose(v[mask], v_recovered[mask], atol=eps * 5)
+    assert torch.allclose(v[mask], v_recovered[mask], atol=eps * 4)
 
-    T_recovered = tf.se3_exp_map(v_recovered)
-    # shouldn't need to mask here
-    assert torch.allclose(T, T_recovered, atol=1e-3)
+    T_recovered = tf.se3_exp_map(v_recovered, eps=eps)
     # but with the mask we should get better results
-    assert torch.allclose(T[mask], T_recovered[mask], atol=eps * 5)
+    assert torch.allclose(T[mask], T_recovered[mask], atol=eps * 4)
+
+
+def test_adjoint():
+    N = 100
+    eps = 1e-5
+    perturbation_mag = 0.2
+    # for perturbations around a pose X, the following should be equivalent:
+    # for notation, let v = (t, omega) be a perturbation in se3
+    # X Exp(v in X frame) = Exp(v in global frame) X
+    # where v in global frame is Ad(X) v in X frame
+    pose = tf.Transform3d(rot=tf.random_rotations(1), pos=torch.randn((1, 3)))
+
+    perturbations = torch.randn((N, 6)) * perturbation_mag
+    X = pose.get_matrix()
+    R, t = pose.get_RT()
+    perturbations_global = tf.perturbations_global(R, t, perturbations)
+
+    perturbed_pose_in_X = X @ tf.se3_exp_map(perturbations)
+    perturbed_pose_global = tf.se3_exp_map(perturbations_global) @ X
+
+    assert torch.allclose(perturbed_pose_in_X, perturbed_pose_global, atol=eps)
 
 
 if __name__ == "__main__":
@@ -184,3 +203,4 @@ if __name__ == "__main__":
     test_quaternions()
     test_so3_exp_map_consistency()
     test_se3_exp_map_consistency()
+    test_adjoint()

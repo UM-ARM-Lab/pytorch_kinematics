@@ -253,6 +253,13 @@ class Transform3d:
         """
         return self._matrix
 
+    def get_RT(self):
+        """
+        Returns the separate rotation and translation components.
+        """
+        mat = self.get_matrix()
+        return mat[:, :3, :3], mat[:, :3, 3]
+
     def _get_matrix_inverse(self):
         """
         Return the inverse of self._matrix.

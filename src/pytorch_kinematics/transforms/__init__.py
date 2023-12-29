@@ -36,5 +36,6 @@ from .se3 import (
     adjoint,
 )
 from .transform3d import Rotate, RotateAxisAngle, Scale, Transform3d, Translate
+from .uncertainty import compose_uncertainty, perturbations_global, sigma_global
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]
