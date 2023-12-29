@@ -37,7 +37,7 @@
         </visual>
     </link>
 
-    <link name="eef">
+    <link name="link3">
         <visual>
             <origin xyz="0.2 0 0" rpy="0 0 0" />
             <geometry>
@@ -45,6 +45,17 @@
             </geometry>
             <material name="Cyan">
                 <color rgba="0 1.0 1.0 1.0"/>
+            </material>
+        </visual>
+    </link>
+    <link name="eef">
+        <visual>
+            <origin xyz="0.15 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="0.15 0.2 0.2"/>
+            </geometry>
+            <material name="red">
+                <color rgba="1 0.0 0.0 1.0"/>
             </material>
         </visual>
     </link>
@@ -71,13 +82,18 @@
         <origin xyz="0.6 0.0 0.0"/>
     </joint>
 
-    <joint name="ee" type="revolute">
+    <joint name="l2_to_l3" type="revolute">
         <parent link="link2"/>
-        <child link="eef"/>
+        <child link="link3"/>
         <axis xyz="0 0 1"/>
         <origin xyz="0.6 0.0 0.0"/>
         <limit lower="-1.0" upper="1.0" effort="1000.0" velocity="0.5"/>
     </joint>
 
+    <joint name="ee" type="fixed">
+        <parent link="link3"/>
+        <child link="eef"/>
+        <origin xyz="0.3 0.0 0.0"/>
+    </joint>
 
 </robot>
