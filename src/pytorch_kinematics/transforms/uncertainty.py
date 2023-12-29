@@ -29,14 +29,14 @@ def sigma_global(R, t, sigma):
     return ad @ sigma @ ad.transpose(-1, -2)
 
 
-def compose_uncertainty(X2: Transform3d, sigma1, sigma2):
+def compose_uncertainty(parent_to_child_link_tsf: Transform3d, sigma1, sigma2):
     """Compose uncertainty of two poses. Note that this is not commutative. It is for pose X1 followed by X2.
 
     This is the simplest approximation and could be problematic for high perturbation values.
 
     To get the covariance at the end effector, sequentially compose the uncertainty of each link.
     """
-    R2, t2 = X2.inverse().get_RT()
+    R2, t2 = parent_to_child_link_tsf.inverse().get_RT()
     ad = adjoint(R2, t2)
     sigma_12 = ad @ sigma1 @ ad.transpose(-1, -2) + sigma2
     return sigma_12
