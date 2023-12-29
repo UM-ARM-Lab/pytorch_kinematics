@@ -293,7 +293,7 @@ class Chain:
     def get_frame_indices(self, *frame_names):
         return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long, device=self.device)
 
-    def forward_kinematics(self, th, frame_indices: Optional = None):
+    def forward_kinematics(self, th, frame_indices: Optional = None, return_relative_tsf=False):
         """
         Compute forward kinematics for the given joint values.
 
@@ -301,6 +301,8 @@ class Chain:
             th: A dict, list, numpy array, or torch tensor of joints values. Possibly batched.
             frame_indices: A list of frame indices to compute transforms for. If None, all frames are computed.
                 Use `get_frame_indices` to convert from frame names to frame indices.
+            return_relative_tsf: If True, return the relative transform from the parent frame to the child frame.
+                These are given the name <child_frame>_rel.
 
         Returns:
             A dict of Transform3d objects for each frame.
@@ -322,6 +324,7 @@ class Chain:
         pris_jnt_transform = axis_and_d_to_pris_matrix(axes_expanded, th)
 
         frame_transforms = {}
+        frame_relative_tsf = {}
         b = th.shape[0]
         for frame_idx in frame_indices:
             frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
@@ -331,30 +334,44 @@ class Chain:
                 if chain_idx.item() in frame_transforms:
                     frame_transform = frame_transforms[chain_idx.item()]
                 else:
-                    link_offset_i = self.link_offsets[chain_idx]
-                    if link_offset_i is not None:
-                        frame_transform = frame_transform @ link_offset_i
-
-                    joint_offset_i = self.joint_offsets[chain_idx]
-                    if joint_offset_i is not None:
-                        frame_transform = frame_transform @ joint_offset_i
-
                     jnt_idx = self.joint_indices[chain_idx]
                     jnt_type = self.joint_type_indices[chain_idx]
+                    jnt_transform_i = None
                     if jnt_type == 0:
                         pass
                     elif jnt_type == 1:
                         jnt_transform_i = rev_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
                     elif jnt_type == 2:
                         jnt_transform_i = pris_jnt_transform[:, jnt_idx]
+
+                    link_offset_i = self.link_offsets[chain_idx]
+                    if link_offset_i is not None:
+                        if jnt_transform_i is not None:
+                            jnt_transform_i = link_offset_i @ jnt_transform_i
+                        else:
+                            jnt_transform_i = link_offset_i
+                    joint_offset_i = self.joint_offsets[chain_idx]
+                    if joint_offset_i is not None:
+                        if jnt_transform_i is not None:
+                            jnt_transform_i = joint_offset_i @ jnt_transform_i
+                        else:
+                            jnt_transform_i = joint_offset_i
+
+                    if jnt_transform_i is not None:
                         frame_transform = frame_transform @ jnt_transform_i
+                    else:
+                        pass
+
+                    frame_relative_tsf[self.idx_to_frame[chain_idx.item()]] = jnt_transform_i
 
             frame_transforms[frame_idx.item()] = frame_transform
 
         frame_names_and_transform3ds = {self.idx_to_frame[frame_idx]: tf.Transform3d(matrix=transform) for
                                         frame_idx, transform in frame_transforms.items()}
-
+        if return_relative_tsf:
+            frame_names_and_transform3ds.update(
+                {frame_name + "_rel": tf.Transform3d(matrix=transform) for frame_name, transform in
+                 frame_relative_tsf.items()})
         return frame_names_and_transform3ds
 
     def ensure_tensor(self, th):
