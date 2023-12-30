@@ -119,7 +119,7 @@ def test_panda_arm():
         # these are the mean pose estimates
         eef_name = "panda_grasptarget"
         eef_idx = chain.get_frame_indices(eef_name)
-        ret = chain.forward_kinematics(joint_values, frame_indices=eef_idx, return_relative_tsf=True)
+        ret = chain.forward_kinematics(joint_values, return_relative_tsf=True)
         eef = ret[eef_name]
         # convert to list
         parents = chain.parents_indices[eef_idx]
@@ -147,10 +147,10 @@ def test_panda_arm():
         X = eef.get_matrix()
         perturbed_pose = X @ pk.se3_exp_map(perturbations_in_X)
 
-        return perturbed_pose
+        return perturbed_pose, ret
 
     scenarios = [
-        # ([0, 0.4, 0., -1.3, 0.1, 1.7, 0., 0., 0.], {'panda_link1': equi_rot_cov * 3}),
+        # ([0, 0.4, 0., -1.3, 0.1, 1.7, 0., 0., 0.], {'panda_link1': equi_rot_cov * 1}),
         # try 1 degrees for joints 0-1 and 0.5 degrees for rest
         ([0, 0.4, 0., -1.3, 0.1, 1.7, 0., 0., 0.],
          {'panda_link0': equi_rot_cov, 'panda_link1': equi_rot_cov, 'panda_link2': equi_rot_cov * 0.5,
@@ -162,7 +162,7 @@ def test_panda_arm():
     ]
 
     for joint_values, joint_covs in scenarios:
-        perturbed_pose = end_effector_perturbed_poses(joint_values, joint_covs)
+        perturbed_pose, all_poses = end_effector_perturbed_poses(joint_values, joint_covs)
 
         perturbed_eef_positions = perturbed_pose[:, :3, 3]
         if debug_objs:
@@ -171,7 +171,20 @@ def test_panda_arm():
         else:
             for pos in perturbed_eef_positions:
                 debug_objs.append(p.createMultiBody(baseMass=0, baseVisualShapeIndex=pose_vis_id, basePosition=pos))
+        cov_debug_objs = []
+        for frame_name, cov in joint_covs.items():
+            # create a red sphere at the link with size corresponding to covariance magnitude (it's isotropic)
+            this_pose = all_poses[frame_name]
+            this_cov = cov[5,5]
+            this_pos = this_pose.get_matrix()[:, :3, 3].squeeze()
+            print(f"{frame_name}: {this_pos}")
+
+            cov_vis_id = p.createVisualShape(shapeType=p.GEOM_SPHERE, radius=this_cov*15, rgbaColor=[1, 0, 0, 0.3])
+            cov_debug_objs.append(p.createMultiBody(baseMass=0, baseVisualShapeIndex=cov_vis_id, basePosition=this_pos))
         input("Press enter to continue")
+
+        for obj in cov_debug_objs:
+            p.removeBody(obj)
 
     while True:
         p.stepSimulation()
