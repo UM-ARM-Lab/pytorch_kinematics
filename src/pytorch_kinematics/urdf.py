@@ -56,7 +56,8 @@ def _build_chain_recurse(root_frame, lmap, joints):
                                             joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits)
             link = lmap[j.child]
             child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
-                                          visuals=[_convert_visual(link.visual)])
+                                          visuals=[_convert_visual(link.visual)],
+                                          collisions=[_convert_visual(link.collision)])
             child_frame.children = _build_chain_recurse(child_frame, lmap, joints)
             children.append(child_frame)
     return children
