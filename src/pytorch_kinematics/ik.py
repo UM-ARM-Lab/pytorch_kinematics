@@ -356,7 +356,10 @@ class PseudoInverseIK(InverseKinematics):
             pos_e = torch.stack(pos_errors, dim=0).cpu()
             rot_e = torch.stack(rot_errors, dim=0).cpu()
             ax[0].set_ylim(0, 1.)
-            ax[1].set_ylim(0, rot_e.max().item() * 1.1)
+            # ignore nan
+            ignore = torch.isnan(rot_e)
+            axis_max = rot_e[~ignore].max().item()
+            ax[1].set_ylim(0, axis_max * 1.1)
             ax[0].set_xlim(0, self.max_iterations - 1)
             ax[1].set_xlim(0, self.max_iterations - 1)
             # draw at most 50 lines
