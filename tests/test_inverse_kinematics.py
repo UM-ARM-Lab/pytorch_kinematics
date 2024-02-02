@@ -44,18 +44,22 @@ def test_jacobian_follower():
 
     # world frame goal
     M = 1000
-    # generate random goal positions
-    goal_pos = torch.rand(M, 3, device=device) * 0.5
-    # also generate random goal rotations
-    goal_rot = torch.rand(M, 3, device=device) * 2 * math.pi
-    goal_tf = pk.Transform3d(pos=goal_pos, rot=goal_rot, device=device)
+    # generate random goal joint angles (so these are all achievable)
+    # use the joint limits to generate random joint angles
+    lim = torch.tensor(chain.get_joint_limits(), device=device)
+    goal_q = torch.rand(M, 7, device=device) * (lim[1] - lim[0]) + lim[0]
 
-    # transform to robot frame
-    goal_in_rob_frame_tf = rob_tf.inverse().compose(goal_tf)
+    # get ee pose (in robot frame)
+    goal_in_rob_frame_tf = chain.forward_kinematics(goal_q)
 
-    joints_high = torch.tensor([170, 120, 170, 120, 170, 120, 175], device=device)
-    joint_limits = torch.stack((-joints_high, joints_high), dim=-1) * math.pi / 180.0
-    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10, joint_limits=joint_limits,
+    # transform to world frame for visualization
+    goal_tf = rob_tf.compose(goal_in_rob_frame_tf)
+    goal = goal_tf.get_matrix()
+    goal_pos = goal[..., :3, 3]
+    goal_rot = pk.matrix_to_euler_angles(goal[..., :3, :3], "XYZ")
+
+    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10,
+                            joint_limits=lim.T,
                             early_stopping_any_converged=True,
                             early_stopping_no_improvement="all",
                             # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
@@ -89,8 +93,10 @@ def test_jacobian_follower():
         pos = m[0, :3, 3]
         rot = m[0, :3, :3]
         quat = pk.matrix_to_quaternion(rot)
-        armId = p.loadURDF(urdf, basePosition=pos.cpu().numpy(), baseOrientation=pk.wxyz_to_xyzw(quat).cpu().numpy(),
-                           useFixedBase=True)
+        pos = pos.cpu().numpy()
+        rot = pk.wxyz_to_xyzw(quat).cpu().numpy()
+        armId = p.loadURDF(urdf, basePosition=pos, baseOrientation=rot, useFixedBase=True)
+
         _make_robot_translucent(armId, alpha=0.6)
         # p.resetBasePositionAndOrientation(armId, [0, 0, 0], [0, 0, 0, 1])
         # draw goal
