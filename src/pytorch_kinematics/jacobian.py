@@ -53,7 +53,6 @@ def calc_jacobian(serial_chain, th, tool=None):
     return torch.where(joint_type == 1., j_revolute, j_pristmatic).permute(0, 2, 1)
 
 
-
 def calc_jacobian2(serial_chain, th, tool=None):
     """
     Return robot Jacobian J in base frame (N,6,DOF) where dot{x} = J dot{q}

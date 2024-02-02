@@ -550,9 +550,101 @@ class Chain:
                                                           jacobian_col,
                                                           old_jacobian_col)
 
-
-
         return jacobian
+
+    def calc_hessian(self, J):
+        # TODO could be static method
+        N, d_ee, ndof = J.shape
+        H = torch.zeros(N, d_ee, ndof, ndof, device=self.device, dtype=self.dtype)
+        # TODO can this be vectorized?
+        for j in range(ndof):
+            for i in range(j, ndof):
+                H[:, :3, i, j] = torch.cross(J[:, 3:, j], J[:, :3, i])
+                H[:, 3:, i, j] = torch.cross(J[:, 3:, j], J[:, 3:, i])
+                if i != j:
+                    H[:, :3, j, i] = H[:, :3, i, j]
+        return H
+
+    def calc_djacobian_dtool(self, th, link_indices=None):
+        """
+        Computes the gradient of the jacobian entries with respect to the tool position only
+        """
+        if not torch.is_tensor(th):
+            th = torch.tensor(th, dtype=self.dtype, device=self.device)
+        if len(th.shape) <= 1:
+            N = 1
+            th = th.reshape(1, -1)
+        else:
+            N = th.shape[0]
+        ndof = th.shape[1]
+        N_range = torch.arange(0, N).to(dtype=torch.long, device=self.device)
+
+        cur_transform = tf.Transform3d(device=self.device,
+                                       dtype=self.dtype).get_matrix().repeat(N, 1, 1)
+
+        if isinstance(self, SerialChain):
+            fk_dict = self.forward_kinematics(th, end_only=False)
+        else:
+            fk_dict = self.forward_kinematics(th)
+
+        # assemble transforms into a single multi-batch tensor - should be in the order of the frames
+        T = []
+        for frame_idx, frame_name in self.idx_to_frame.items():
+            T.append(fk_dict[frame_name].get_matrix())
+        T = torch.stack(T, dim=0)  # num_links x N x 4 x 4
+
+        # retrieve desired link-transform
+        ee_transform = T[link_indices, N_range] @ cur_transform
+        tool_world = ee_transform[:, :3, 3]
+
+        # compute jacobian in world frame
+        djacobian_dtool = torch.zeros((N, 3, 6, ndof), dtype=self.dtype, device=self.device)
+        # TODO exclude fixed joints? saves for loop time
+        # construct a parent indices tensor which ommits fixed joints
+        # rather than incrementing count, some how we need to extract
+        eye = torch.eye(3, device=self.device, dtype=self.dtype).unsqueeze(0).repeat(N, 1, 1)
+
+        for d in range(self.max_kinematic_tree_depth):
+            # Retrieve frame information
+            frame_idx = self.non_fixed_parents_indices[link_indices, d]
+            # break if have calculated for all desired links
+            if torch.all(frame_idx < 0):
+                break
+            transform = T[frame_idx, N_range]
+            joint_idx = self.joint_indices[frame_idx]
+            joint_axes = self.axes[joint_idx].expand(N, 3).unsqueeze(-1)
+            joint_type = self.joint_type_indices[frame_idx].unsqueeze(-1)
+
+            old_djacobian_col = djacobian_dtool[N_range, :, :, joint_idx].clone()
+            djacobian_col = djacobian_dtool[N_range, :, :, joint_idx].clone()
+            joint_axes_world = (transform[:, :3, :3] @ joint_axes).squeeze(-1)
+
+            # compute jacobian as if revolute joint
+            if torch.any(joint_type == Joint.TYPES.index('revolute')):
+                position_djacobian = torch.cross(joint_axes_world.reshape(N, 1, 3), eye,
+                                                 dim=-1)  # this will be N x 3 x 3
+                djac_column_revolute = torch.cat(
+                    (position_djacobian, torch.zeros_like(position_djacobian)), dim=-1)
+
+                # Replace jacobian column with correct type
+                djacobian_col = torch.where(joint_type.unsqueeze(-1) == Joint.TYPES.index('revolute'),
+                                            djac_column_revolute,
+                                            djacobian_col
+                                            )
+
+            # compute jacobian as if prismatic joint
+            if torch.any(joint_type == Joint.TYPES.index('prismatic')):
+                djacobian_column_prismatic = torch.zeros(N, 3, 6, device=self.device, dtype=self.dtype)
+                djacobian_col = torch.where(joint_type == Joint.TYPES.index('prismatic'),
+                                            jacobian_column_prismatic,
+                                            jacobian_col
+                                            )
+
+            # update jacobian but only if we are not at the desired frame_idx
+            djacobian_dtool[N_range, :, :, joint_idx] = torch.where(frame_idx.reshape(-1, 1, 1) > -1,
+                                                                     djacobian_col,
+                                                                     old_djacobian_col)
+            return djacobian_dtool
 
     def calc_jacobian_and_hessian(self, th, tool=None, link_indices=None):
         """
@@ -574,15 +666,7 @@ class Chain:
         ndof = th.shape[1]
 
         J = self.calc_jacobian(th, tool, link_indices)
-
-        H = torch.zeros(N, 6, ndof, ndof, device=self.device, dtype=self.dtype)
-        # TODO can this be vectorized?
-        for j in range(ndof):
-            for i in range(j, ndof):
-                H[:, :3, i, j] = torch.cross(J[:, 3:, j], J[:, :3, i])
-                H[:, 3:, i, j] = torch.cross(J[:, 3:, j], J[:, 3:, i])
-                if i != j:
-                    H[:, :3, j, i] = H[:, :3, i, j]
+        H = self.calc_hessian(J)
         return J, H
 
     @staticmethod
