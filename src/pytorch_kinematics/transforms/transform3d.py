@@ -477,7 +477,7 @@ class Translate(Transform3d):
                 - A torch scalar
                 - A 1D torch tensor
         """
-        super().__init__(device=device)
+        super().__init__(device=device, dtype=dtype)
         xyz = _handle_input(x, y, z, dtype, device, "Translate")
         N = xyz.shape[0]
 
@@ -514,7 +514,7 @@ class Scale(Transform3d):
                 - torch scalar
                 - 1D torch tensor
         """
-        super().__init__(device=device)
+        super().__init__(device=device, dtype=dtype)
         xyz = _handle_input(x, y, z, dtype, device, "scale", allow_singleton=True)
         N = xyz.shape[0]
 
@@ -549,7 +549,7 @@ class Rotate(Transform3d):
             orthogonal_tol: tolerance for the test of the orthogonality of R
 
         """
-        super().__init__(device=device)
+        super().__init__(device=device, dtype=dtype)
         if not torch.is_tensor(R):
             R = torch.tensor(R, dtype=dtype, device=device)
         R = R.to(dtype=dtype).to(device=device)
@@ -615,7 +615,7 @@ class RotateAxisAngle(Rotate):
         # is for transforming column vectors. Therefore we transpose this matrix.
         # R will always be of shape (N, 3, 3)
         R = _axis_angle_rotation(axis, angle)
-        super().__init__(device=device, R=R)
+        super().__init__(device=device, dtype=dtype, R=R)
 
 
 def _handle_coord(c, dtype, device):
