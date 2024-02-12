@@ -46,6 +46,7 @@ dependencies = [
     'numpy',
     'pyyaml',
     'torch',
+    'matplotlib',
 ]
 
 [project.optional-dependencies]
