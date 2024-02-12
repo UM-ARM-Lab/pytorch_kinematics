@@ -81,7 +81,7 @@ def gaussian_around_config(config: torch.Tensor, std: float) -> Callable[[int], 
 
 
 class LineSearch:
-    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx, problem_remaining=None):
+    def do_line_search(self, chain, q, dq, target_pos, target_wxyz, initial_dx, problem_remaining=None):
         raise NotImplementedError()
 
 
@@ -92,7 +92,7 @@ class BacktrackingLineSearch(LineSearch):
         self.max_iterations = max_iterations
         self.sufficient_decrease = sufficient_decrease
 
-    def do_line_search(self, chain, q, dq, target_pos, target_rot_rpy, initial_dx, problem_remaining=None):
+    def do_line_search(self, chain, q, dq, target_pos, target_wxyz, initial_dx, problem_remaining=None):
         N = target_pos.shape[0]
         NM = q.shape[0]
         M = NM // N
@@ -112,7 +112,7 @@ class BacktrackingLineSearch(LineSearch):
             # evaluate the error
             m = chain.forward_kinematics(q_new).get_matrix()
             m = m.view(-1, M, 4, 4)
-            dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_rot_rpy)
+            dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_wxyz)
             err_new = dx.squeeze().norm(dim=-1)
             # check if it's better
             improvement = err - err_new
@@ -228,20 +228,28 @@ class InverseKinematics:
         raise NotImplementedError()
 
 
-def delta_pose(m: torch.tensor, target_pos, target_rot_rpy):
+def delta_pose(m: torch.tensor, target_pos, target_wxyz):
     """
     Determine the error in position and rotation between the given poses and the target poses
 
     :param m: (N x M x 4 x 4) tensor of homogenous transforms
     :param target_pos:
-    :param target_rot_rpy:
+    :param target_wxyz: target orientation represented in unit quaternion
     :return: (N*M, 6, 1) tensor of delta pose (dx, dy, dz, droll, dpitch, dyaw)
     """
     pos_diff = target_pos.unsqueeze(1) - m[:, :, :3, 3]
     pos_diff = pos_diff.view(-1, 3, 1)
-    rot_diff = target_rot_rpy.unsqueeze(1) - rotation_conversions.matrix_to_euler_angles(m[:, :, :3, :3],
-                                                                                         "XYZ")
-    rot_diff = rot_diff.view(-1, 3, 1)
+    cur_wxyz = rotation_conversions.matrix_to_quaternion(m[:, :, :3, :3])
+
+    # quaternion that rotates from the current orientation to the desired orientation
+    # inverse for unit quaternion is the conjugate
+    diff_wxyz = rotation_conversions.quaternion_multiply(target_wxyz.unsqueeze(1),
+                                                         rotation_conversions.quaternion_invert(cur_wxyz))
+    # angular velocity vector needed to correct the orientation
+    # if time is considered, should divide by \delta t, but doing it iteratively we can choose delta t to be 1
+    diff_axis_angle = rotation_conversions.quaternion_to_axis_angle(diff_wxyz)
+
+    rot_diff = diff_axis_angle.view(-1, 3, 1)
 
     dx = torch.cat((pos_diff, rot_diff), dim=1)
     return dx, pos_diff, rot_diff
@@ -273,7 +281,7 @@ class PseudoInverseIK(InverseKinematics):
         target_pos = target[:, :3, 3]
         # jacobian gives angular rotation about x,y,z axis of the base frame
         # convert target rot to desired rotation about x,y,z
-        target_rot_rpy = rotation_conversions.matrix_to_euler_angles(target[:, :3, :3], "XYZ")
+        target_wxyz = rotation_conversions.matrix_to_quaternion(target[:, :3, :3])
 
         sol = IKSolution(self.dof, M, self.num_retries, self.pos_tolerance, self.rot_tolerance, device=self.device)
 
@@ -306,7 +314,7 @@ class PseudoInverseIK(InverseKinematics):
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
                 # unflatten to broadcast with goal
                 m = m.view(-1, self.num_retries, 4, 4)
-                dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_rot_rpy)
+                dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_wxyz)
 
                 # damped least squares method
                 # lambda^2*I (lambda^2 is regularization)
@@ -321,7 +329,7 @@ class PseudoInverseIK(InverseKinematics):
             else:
                 with torch.no_grad():
                     if self.line_search is not None:
-                        lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_rot_rpy,
+                        lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_wxyz,
                                                                           dx, problem_remaining=sol.remaining)
                         lr = lr.unsqueeze(1)
                     else:
