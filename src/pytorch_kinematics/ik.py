@@ -252,6 +252,19 @@ def apply_mask(mask, *args):
 
 
 class PseudoInverseIK(InverseKinematics):
+    def compute_dq(self, J, dx):
+        # lambda^2*I (lambda^2 is regularization)
+        reg = self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
+
+        # JJ^T + lambda^2*I (lambda^2 is regularization)
+        tmpA = J @ J.transpose(1, 2) + reg
+        # (JJ^T + lambda^2I) A = dx
+        # A = (JJ^T + lambda^2I)^-1 dx
+        A = torch.linalg.solve(tmpA, dx)
+        # dq = J^T (JJ^T + lambda^2I)^-1 dx
+        dq = J.transpose(1, 2) @ A
+        return dq
+
     def solve(self, target_poses: Transform3d) -> IKSolution:
         target = target_poses.get_matrix()
 
@@ -296,12 +309,8 @@ class PseudoInverseIK(InverseKinematics):
                 dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_rot_rpy)
 
                 # damped least squares method
-                # JJ^T + lambda^2*I (lambda^2 is regularization)
-                tmpA = J @ J.transpose(1, 2) + self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
-                # (JJ^T + lambda^2I) A = dx
-                A = torch.linalg.solve(tmpA, dx)
-                # dq = J^T (JJ^T + lambda^2I)^-1 dx
-                dq = J.transpose(1, 2) @ A
+                # lambda^2*I (lambda^2 is regularization)
+                dq = self.compute_dq(J, dx)
                 dq = dq.squeeze(2)
 
             improvement = None
@@ -381,3 +390,28 @@ class PseudoInverseIK(InverseKinematics):
         if i == self.max_iterations - 1:
             sol.update(q, self.err_all, use_keep_mask=False)
         return sol
+
+
+class PseudoInverseIKWithSVD(PseudoInverseIK):
+    # generally slower, but allows for selective damping if needed
+    def compute_dq(self, J, dx):
+        # reg = self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
+        U, D, Vh = torch.linalg.svd(J)
+        m = D.shape[1]
+
+        # tmpA = U @ (D @ D.transpose(1, 2) + reg) @ U.transpose(1, 2)
+        # singular_val = torch.diagonal(D)
+
+        denom = D ** 2 + self.regularlization
+        prod = D / denom
+        # J^T (JJ^T + lambda^2I)^-1 = V @ (D @ D^T + lambda^2I)^-1 @ U^T = sum_i (d_i / (d_i^2 + lambda^2) v_i @ u_i^T)
+        # should be equivalent to damped least squares
+        inverted = torch.diag_embed(prod)
+
+        # drop columns from V
+        Vh = Vh[:, :m, :]
+        total = Vh.transpose(1, 2) @ inverted @ U.transpose(1, 2)
+
+        # dq = J^T (JJ^T + lambda^2I)^-1 dx
+        dq = total @ dx
+        return dq
