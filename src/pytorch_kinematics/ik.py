@@ -148,7 +148,7 @@ class InverseKinematics:
         :param pos_tolerance: position tolerance in meters
         :param rot_tolerance: rotation tolerance in radians
         :param retry_configs: (M, DOF) tensor of initial configs to try for each problem; leave as None to sample
-        :param num_retries: number, M, of random initial configs to try for that problem
+        :param num_retries: number, M, of random initial configs to try for that problem; implemented with batching
         :param joint_limits: (DOF, 2) tensor of joint limits (min, max) for each joint in radians
         :param config_sampling_method: either "uniform" or "gaussian" or a function that takes in the number of configs
         :param max_iterations: maximum number of iterations to run
@@ -295,8 +295,12 @@ class PseudoInverseIK(InverseKinematics):
                 m = m.view(-1, self.num_retries, 4, 4)
                 dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_rot_rpy)
 
+                # damped least squares method
+                # JJ^T + lambda^2*I (lambda^2 is regularization)
                 tmpA = J @ J.transpose(1, 2) + self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
+                # (JJ^T + lambda^2I) A = dx
                 A = torch.linalg.solve(tmpA, dx)
+                # dq = J^T (JJ^T + lambda^2I)^-1 dx
                 dq = J.transpose(1, 2) @ A
                 dq = dq.squeeze(2)
 
