@@ -1,4 +1,3 @@
-import math
 import os
 from timeit import default_timer as timer
 
@@ -9,8 +8,6 @@ import pytorch_seed
 
 import pybullet as p
 import pybullet_data
-
-TEST_DIR = os.path.dirname(__file__)
 
 visualize = True
 
