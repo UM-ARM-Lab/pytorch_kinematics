@@ -47,6 +47,7 @@ dependencies = [
     'pyyaml',
     'torch',
     'matplotlib',
+    'pytorch_seed',
 ]
 
 [project.optional-dependencies]
