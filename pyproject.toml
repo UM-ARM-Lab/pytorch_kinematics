@@ -51,7 +51,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = [
+    "pytest",
+    "pybullet",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/UM-ARM-Lab/pytorch_kinematics"
