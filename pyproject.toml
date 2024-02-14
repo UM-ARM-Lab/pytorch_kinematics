@@ -54,7 +54,6 @@ dependencies = [
 test = [
     "pytest",
     "pybullet",
-    "jax",
 ]
 
 [project.urls]
