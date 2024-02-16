@@ -14,5 +14,5 @@ authors:
     orcid: https://orcid.org/0000-0002-8701-9809
 title: PyTorch Kinematics
 doi: 10.5281/zenodo.7700588
-version: v0.5.4
-date-released: 2023-03-06
+version: v0.6.1
+date-released: 2024-02-16
