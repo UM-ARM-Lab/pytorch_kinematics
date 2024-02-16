@@ -1,4 +1,5 @@
 .idea
+*.mp4
 *.so
 *.pkl
 *.egg-info

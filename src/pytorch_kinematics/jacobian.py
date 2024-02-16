@@ -3,7 +3,7 @@ import torch
 from pytorch_kinematics import transforms
 
 
-def calc_jacobian(serial_chain, th, tool=None):
+def calc_jacobian(serial_chain, th, tool=None, ret_eef_pose=False):
     """
     Return robot Jacobian J in base frame (N,6,DOF) where dot{x} = J dot{q}
     The first 3 rows relate the translational velocities and the
@@ -57,4 +57,6 @@ def calc_jacobian(serial_chain, th, tool=None):
     j_tr[:, :3, :3] = rotation
     j_tr[:, 3:, 3:] = rotation
     j_w = j_tr @ j_eef
+    if ret_eef_pose:
+        return j_w, pose
     return j_w
