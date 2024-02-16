@@ -9,7 +9,7 @@ import pytorch_seed
 import pybullet as p
 import pybullet_data
 
-visualize = True
+visualize = False
 
 
 def _make_robot_translucent(robot_id, alpha=0.4):
