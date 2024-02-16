@@ -19,13 +19,13 @@ See `tests` for code samples; some are also shown here.
 
 If you use this package in your research, consider citing
 ```
-@software{Zhong_PyTorch_Kinematics_2023,
-author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin and Peter, Mitrano},
+@software{Zhong_PyTorch_Kinematics_2024,
+author = {Zhong, Sheng and Power, Thomas and Gupta, Ashwin and Mitrano, Peter},
 doi = {10.5281/zenodo.7700588},
-month = {3},
+month = feb,
 title = {{PyTorch Kinematics}},
-version = {v0.5.4},
-year = {2023}
+version = {v0.6.1},
+year = {2024}
 }
 ```
 
