@@ -1,5 +1,5 @@
 # PyTorch Robot Kinematics
-- Parallel and differentiable forward kinematics (FK) and Jacobian calculation
+- Parallel and differentiable forward kinematics (FK), Jacobian calculation, and damped least squares inverse kinematics (IK)
 - Load robot description from URDF, SDF, and MJCF formats 
 - SDF queries batched across configurations and points via [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric)
 
@@ -166,6 +166,51 @@ J = chain.jacobian(th, locations=loc)
 
 The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
 for a survey of ways to do so. Note that IK may be better performed through other means (but doing it through the Jacobian can give an end-to-end differentiable method).
+
+## Inverse Kinematics (IK)
+Inverse kinematics is available via damped least squares (iterative steps with Jacobian pseudo-inverse damped to avoid oscillation near singularlities). 
+Compared to other IK libraries, these are the typical advantages over them:
+- not ROS dependent (many IK libraries need the robot description on the ROS parameter server)
+- batched in both goal specification and retries from different starting configurations
+- goal orientation in addition to goal position
+
+See `tests/test_inverse_kinematics.py` for usage, but generally what you need is below:
+```python
+full_urdf = os.path.join(search_path, urdf)
+chain = pk.build_serial_chain_from_urdf(open(full_urdf).read(), "lbr_iiwa_link_7")
+
+# goals are specified as Transform3d poses in the **robot frame**
+# so if you have the goals specified in the world frame, you also need the robot frame in the world frame
+pos = torch.tensor([0.0, 0.0, 0.0], device=device)
+rot = torch.tensor([0.0, 0.0, 0.0], device=device)
+rob_tf = pk.Transform3d(pos=pos, rot=rot, device=device)
+
+# specify goals as Transform3d poses in world frame
+goal_in_world_frame_tf = ...
+# convert to robot frame (skip if you have it specified in robot frame already, or if world = robot frame)
+goal_in_rob_frame_tf = rob_tf.inverse().compose(goal_tf)
+
+# get robot joint limits
+lim = torch.tensor(chain.get_joint_limits(), device=device)
+
+# create the IK object
+# see the constructor for more options and their explanations, such as convergence tolerances
+ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10,
+                        joint_limits=lim.T,
+                        early_stopping_any_converged=True,
+                        early_stopping_no_improvement="all",
+                        debug=False,
+                        lr=0.2)
+# solve IK
+sol = ik.solve(goal_in_rob_frame_tf)
+# num goals x num retries x DOF tensor of joint angles; if not converged, best solution found so far
+print(sol.solutions)
+# num goals x num retries can check for the convergence of each run
+print(sol.converged)
+# num goals x num retries can look at errors directly
+print(sol.err_pos)
+print(sol.err_rot)
+```
 
 ## SDF Queries
 See [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric) for the latest details, some instructions are pasted here:
