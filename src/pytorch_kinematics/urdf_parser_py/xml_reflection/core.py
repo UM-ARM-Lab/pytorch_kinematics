@@ -31,6 +31,12 @@ def on_error_stderr(message):
 
 
 on_error = on_error_stderr
+SILENTLY_IGNORED_TAGS = [
+    'material',
+    'inertial',
+    'ros2_control',
+    'self_collision_checking',
+]
 
 skip_default = False
 # defaultIfMatching = True # Not implemeneted yet
@@ -544,7 +550,8 @@ class Reflection(object):
             for xml_var in info.attributes:
                 on_error('Unknown attribute "{}" in {}'.format(xml_var, path))
             for node in info.children:
-                on_error('Unknown tag "{}" in {}'.format(node.tag, path))
+                if node.tag not in SILENTLY_IGNORED_TAGS:
+                    on_error('Unknown tag "{}" in {}'.format(node.tag, path))
         # Allow children parsers to adopt this current path (if modified with id_var)
         return path
 
