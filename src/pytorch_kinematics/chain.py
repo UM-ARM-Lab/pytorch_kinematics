@@ -443,7 +443,7 @@ class Chain:
     def get_joints_and_child_links(self):
         yield from Chain._get_joints_and_child_links(self._root)
 
-    def jacobian(self, th, locations=None, link_indices=None):
+    def jacobian(self, th, locations=None, link_indices=None, analytic=False, locations_in_ee_frame=True):
         if link_indices is None:
             msg = "Cannot compute Jacobian for non-serial chain unless frame_indices are specified." \
                   " The Jacobian is can be defined for any links, but we need to know which links you want."
@@ -451,9 +451,10 @@ class Chain:
         if locations is not None:
             locations = tf.Transform3d(pos=locations, device=self.device)
 
-        return self.calc_jacobian(th, tool=locations, link_indices=link_indices)
+        return self.calc_jacobian(th, tool=locations, link_indices=link_indices, analytic=analytic,
+                              tool_in_ee_frame=locations_in_ee_frame)
 
-    def jacobian_and_hessian(self, th, locations=None, link_indices=None):
+    def jacobian_and_hessian(self, th, locations=None, link_indices=None, analytic=False, locations_in_ee_frame=True):
         if link_indices is None:
             msg = "Cannot compute Jacobian for non-serial chain unless frame_indices are specified." \
                   " The Jacobian is can be defined for any links, but we need to know which links you want."
@@ -461,9 +462,10 @@ class Chain:
         if locations is not None:
             locations = tf.Transform3d(pos=locations, device=self.device)
 
-        return self.calc_jacobian_and_hessian(th, tool=locations, link_indices=link_indices)
+        return self.calc_jacobian_and_hessian(th, tool=locations, link_indices=link_indices, analytic=analytic,
+                                              tool_in_ee_frame=locations_in_ee_frame)
 
-    def calc_jacobian(self, th, tool=None, link_indices=None):
+    def calc_jacobian(self, th, tool=None, link_indices=None, analytic=False, tool_in_ee_frame=True):
         """
         Return robot Jacobian J in base frame (N,6,DOF) where dot{x} = J dot{q}
         The first 3 rows relate the translational velocities and the
@@ -505,7 +507,11 @@ class Chain:
 
         # retrieve desired link-transform
         ee_transform = T[link_indices, N_range] @ cur_transform
-        tool_world = ee_transform[:, :3, 3]
+        if tool_in_ee_frame:
+            tool_world = ee_transform[:, :3, 3]
+        else:
+            tool_world = cur_transform[:, :3, 3]
+            
         # compute jacobian in world frame
         jacobian = torch.zeros((N, 6, ndof), dtype=self.dtype, device=self.device)
         # TODO exclude fixed joints? saves for loop time
@@ -549,6 +555,17 @@ class Chain:
             jacobian[N_range, :, joint_idx] = torch.where(frame_idx.unsqueeze(-1) > -1,
                                                           jacobian_col,
                                                           old_jacobian_col)
+
+        if analytic:
+            R = ee_transform[:, :3, :3].transpose(1, 2)
+            T = torch.eye(3, device=self.device).expand(N, 3, 3)
+            zeros = torch.zeros_like(R)
+            T = torch.cat((
+                torch.cat((T, zeros), dim=2),
+                torch.cat((zeros, R), dim=2)),
+                dim=1
+            )
+            jacobian = T @ jacobian
 
         return jacobian
 
@@ -621,7 +638,8 @@ class Chain:
 
             # compute jacobian as if revolute joint
             if torch.any(joint_type == Joint.TYPES.index('revolute')):
-                position_djacobian = torch.cross(joint_axes_world.reshape(N, 1, 3), eye,
+                position_djacobian = torch.cross(joint_axes_world.reshape(N, 1, 3),
+                                                 ee_transform[:, :3, :3].transpose(1, 2),
                                                  dim=-1)  # this will be N x 3 x 3
                 djac_column_revolute = torch.cat(
                     (position_djacobian, torch.zeros_like(position_djacobian)), dim=-1)
@@ -642,11 +660,12 @@ class Chain:
 
             # update jacobian but only if we are not at the desired frame_idx
             djacobian_dtool[N_range, :, :, joint_idx] = torch.where(frame_idx.reshape(-1, 1, 1) > -1,
-                                                                     djacobian_col,
-                                                                     old_djacobian_col)
-            return djacobian_dtool
+                                                                    djacobian_col,
+                                                                    old_djacobian_col)
+        return djacobian_dtool
 
-    def calc_jacobian_and_hessian(self, th, tool=None, link_indices=None):
+    def calc_jacobian_and_hessian(self, th, tool=None, link_indices=None, analytic=False,
+                                  tool_in_ee_frame=True):
         """
             Calculates robot jacobian and kinematic hessian in the base frame
 
@@ -665,7 +684,8 @@ class Chain:
             N = th.shape[0]
         ndof = th.shape[1]
 
-        J = self.calc_jacobian(th, tool, link_indices)
+        # TODO not sure about converting hessian to analytic
+        J = self.calc_jacobian(th, tool, link_indices, analytic, tool_in_ee_frame=tool_in_ee_frame)
         H = self.calc_hessian(J)
         return J, H
 
@@ -698,7 +718,7 @@ class SerialChain(Chain):
         if self._serial_frames is None:
             raise ValueError("Invalid end frame name %s." % end_frame_name)
 
-    def jacobian(self, th, locations=None, link_indices=None):
+    def jacobian(self, th, locations=None, link_indices=None, locations_in_ee_frame=True):
         if locations is not None:
             locations = tf.Transform3d(pos=locations)
 
@@ -716,7 +736,8 @@ class SerialChain(Chain):
 
         _, th, joint_indices = self._convert_serial_inputs_to_chain_inputs(False, th)
 
-        return self.calc_jacobian(th, tool=locations, link_indices=link_indices)[:, :, joint_indices]
+        return self.calc_jacobian(th, tool=locations, link_indices=link_indices, 
+                                  tool_in_ee_frame=locations_in_ee_frame)[:, :, joint_indices]
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
