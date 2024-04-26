@@ -95,10 +95,7 @@ def _sqrt_positive_part(x):
     Returns torch.sqrt(torch.max(0, x))
     but with a zero subgradient where x is 0.
     """
-    ret = torch.zeros_like(x)
-    positive_mask = x > 0
-    ret[positive_mask] = torch.sqrt(x[positive_mask])
-    return ret
+    return torch.sqrt(torch.where(x > 0, x, torch.zeros_like(x)))
 
 
 def matrix_to_quaternion(matrix):
