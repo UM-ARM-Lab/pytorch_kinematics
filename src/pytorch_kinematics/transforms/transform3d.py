@@ -10,6 +10,7 @@ import torch
 from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix, \
     euler_angles_to_matrix
 from pytorch_kinematics.transforms.perturbation import sample_perturbations
+from arm_pytorch_utilities import linalg
 
 DEFAULT_EULER_CONVENTION = "XYZ"
 
@@ -297,7 +298,7 @@ class Transform3d:
         out = Transform3d(matrix=matrix, device=self.device, dtype=self.dtype)
         return out
 
-    def transform_points(self, points, eps: Optional[float] = None):
+    def transform_points(self, points, eps: Optional[float] = None, batch_to_batch=False):
         """
         Use this transform to transform a set of 3D points. Assumes row major
         ordering of the input points.
@@ -311,6 +312,8 @@ class Transform3d:
                 torch.clamp(last_coord.abs(), eps),
                 i.e. the last coordinates that are exactly 0 will
                 be clamped to +eps.
+            batch_to_batch: If True, then each transform is applied to the corresponding point instead of all points.
+                Note that this only makes sense if the number of transforms matches the number of points.
 
         Returns:
             points_out: points of shape (N, P, 3) or (P, 3) depending
@@ -328,7 +331,10 @@ class Transform3d:
         points_batch = torch.cat([points_batch, ones], dim=2)
 
         composed_matrix = self.get_matrix().transpose(-1, -2)
-        points_out = _broadcast_bmm(points_batch, composed_matrix)
+        if batch_to_batch:
+            points_out = linalg.batch_batch_product(points_batch, composed_matrix)
+        else:
+            points_out = _broadcast_bmm(points_batch, composed_matrix)
         denom = points_out[..., 3:]  # denominator
         if eps is not None:
             denom_sign = denom.sign() + (denom == 0.0).type_as(denom)
@@ -342,12 +348,14 @@ class Transform3d:
 
         return points_out
 
-    def transform_normals(self, normals):
+    def transform_normals(self, normals, batch_to_batch=False):
         """
         Use this transform to transform a set of normal vectors.
 
         Args:
             normals: Tensor of shape (P, 3) or (N, P, 3)
+            batch_to_batch: If True, then each transform is applied to the corresponding normal instead of all normals.
+                Note that this only makes sense if the number of transforms matches the number of normals.
 
         Returns:
             normals_out: Tensor of shape (P, 3) or (N, P, 3) depending
@@ -357,7 +365,11 @@ class Transform3d:
             msg = "Expected normals to have dim = 2 or dim = 3: got shape %r"
             raise ValueError(msg % (normals.shape,))
         mat = self.inverse().get_matrix()[:, :3, :3]
-        normals_out = _broadcast_bmm(normals, mat)
+
+        if batch_to_batch:
+            normals_out = linalg.batch_batch_product(normals, mat)
+        else:
+            normals_out = _broadcast_bmm(normals, mat)
 
         # This doesn't pass unit tests. TODO investigate further
         # if self._lu is None:
