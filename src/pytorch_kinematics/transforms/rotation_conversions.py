@@ -662,6 +662,21 @@ def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
     return matrix[..., :2, :].clone().reshape(*matrix.size()[:-2], 6)
 
 
+def matrix44_to_se3_9d(matrix: torch.Tensor) -> torch.Tensor:
+    r = matrix_to_rotation_6d(matrix[..., :3, :3])
+    t = matrix[..., :3, 3]
+    return torch.cat([r, t], dim=-1)
+
+
+def se3_9d_to_matrix44(se3: torch.Tensor) -> torch.Tensor:
+    r = rotation_6d_to_matrix(se3[..., :6])
+    t = se3[..., 6:]
+    H = torch.eye(4, device=r.device, dtype=r.dtype).repeat(r.shape[:-2] + (1, 1))
+    H[..., :3, :3] = r
+    H[..., :3, 3] = t
+    return H
+
+
 def matrix_to_pos_rot(m):
     """Convert 4x4 transformation matrix to (position, xyzw quatnerion) used by pybullet and RViz"""
     pos = m[..., :3, 3]

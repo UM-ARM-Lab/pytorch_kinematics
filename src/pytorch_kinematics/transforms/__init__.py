@@ -23,6 +23,8 @@ from .rotation_conversions import (
     axis_and_d_to_pris_matrix,
     wxyz_to_xyzw,
     xyzw_to_wxyz,
+    matrix44_to_se3_9d,
+    se3_9d_to_matrix44,
 )
 from .so3 import (
     so3_exp_map,
