@@ -25,6 +25,8 @@ from .rotation_conversions import (
     xyzw_to_wxyz,
     matrix44_to_se3_9d,
     se3_9d_to_matrix44,
+    pos_rot_to_matrix,
+    matrix_to_pos_rot,
 )
 from .so3 import (
     so3_exp_map,
