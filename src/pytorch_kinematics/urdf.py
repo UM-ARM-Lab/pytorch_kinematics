@@ -6,10 +6,10 @@ import pytorch_kinematics.transforms as tf
 # has better RPY to quaternion transformation
 import transformations as tf2
 
-JOINT_TYPE_MAP = {'revolute':   'revolute',
+JOINT_TYPE_MAP = {'revolute': 'revolute',
                   'continuous': 'revolute',
-                  'prismatic':  'prismatic',
-                  'fixed':      'fixed'}
+                  'prismatic': 'prismatic',
+                  'fixed': 'fixed'}
 
 
 def _convert_transform(origin):
@@ -43,6 +43,14 @@ def _convert_visual(visual):
         return frame.Visual(v_tf, g_type, g_param)
 
 
+def _convert_inertial(inertial):
+    if inertial is None:
+        return frame.Inertial()
+    return frame.Inertial(offset=_convert_transform(inertial.origin),
+                          mass=inertial.mass,
+                          inertia=inertial.inertia)
+
+
 def _build_chain_recurse(root_frame, lmap, joints):
     children = []
     for j in joints:
@@ -56,6 +64,7 @@ def _build_chain_recurse(root_frame, lmap, joints):
                                             joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits)
             link = lmap[j.child]
             child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
+                                          inertial=_convert_inertial(link.inertial),
                                           visuals=[_convert_visual(link.visual)],
                                           collisions=[_convert_visual(link.collision)])
             child_frame.children = _build_chain_recurse(child_frame, lmap, joints)
@@ -112,8 +121,9 @@ def build_chain_from_urdf(data):
     root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint()
     root_frame.link = frame.Link(root_link.name, _convert_transform(root_link.origin),
-                                 [_convert_visual(root_link.visual)],
-                                 [_convert_visual(root_link.collision)])
+                                 inertial=_convert_inertial(root_link.inertial),
+                                 visuals=[_convert_visual(root_link.visual)],
+                                 collisions=[_convert_visual(root_link.collision)])
 
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
     return chain.Chain(root_frame)

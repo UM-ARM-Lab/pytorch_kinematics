@@ -76,6 +76,8 @@ class Chain:
         self.n_joints = len(self.get_joint_parameter_names())
         self.axes = torch.zeros([self.n_joints, 3], dtype=self.dtype, device=self.device)
         self.link_offsets = []
+        self.link_com_offsets = []
+        self.link_masses = []
         self.joint_offsets = []
         self.joint_type_indices = []
         queue = []
@@ -100,6 +102,21 @@ class Chain:
             else:
                 self.link_offsets.append(root.link.offset.get_matrix())
 
+            if root.link.inertial is None:
+                if root.link.offset is None:
+                    self.link_com_offsets.append(torch.zeros(3))
+                else:
+                    self.link_com_offsets.append(root.link.offset.get_matrix()[0, :3, 3])
+            else:
+                if root.link.offset is None:
+                    self.link_com_offset.append(root.link.inertial.offset.get_matrix()[0, :3, 3])
+                else:
+                    # compose transformations then get translation
+                    self.link_com_offsets.append(
+                        (root.link.offset.get_matrix() @ root.link.inertial.offset.get_matrix())[0, :3, 3])
+
+                self.link_masses.append(root.link.inertial.mass)
+
             if root.joint.offset is None:
                 self.joint_offsets.append(None)
             else:
@@ -122,6 +139,8 @@ class Chain:
             idx += 1
         self.joint_type_indices = torch.tensor(self.joint_type_indices)
         self.joint_indices = torch.tensor(self.joint_indices)
+        self.link_masses = torch.tensor(self.link_masses, dtype=self.dtype, device=self.device)
+        self.link_com_offsets = torch.stack(self.link_com_offsets, dim=0)
         # We need to use a dict because torch.compile doesn't list lists of tensors
 
         # pad parent indices with -1 so they are all the same length
@@ -161,6 +180,9 @@ class Chain:
         self.joint_indices = self.joint_indices.to(dtype=torch.long, device=self.device)
         self.axes = self.axes.to(dtype=self.dtype, device=self.device)
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
+        self.link_com_offsets = self.link_com_offsets.to(dtype=self.dtype, device=self.device)
+        self.link_masses = self.link_masses.to(dtype=self.dtype, device=self.device)
+        print(self.link_com_offsets.shape, self.link_masses.shape)
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_offsets]
         self.low = self.low.to(dtype=self.dtype, device=self.device)
@@ -452,7 +474,7 @@ class Chain:
             locations = tf.Transform3d(pos=locations, device=self.device)
 
         return self.calc_jacobian(th, tool=locations, link_indices=link_indices, analytic=analytic,
-                              tool_in_ee_frame=locations_in_ee_frame)
+                                  tool_in_ee_frame=locations_in_ee_frame)
 
     def jacobian_and_hessian(self, th, locations=None, link_indices=None, analytic=False, locations_in_ee_frame=True):
         if link_indices is None:
@@ -511,7 +533,7 @@ class Chain:
             tool_world = ee_transform[:, :3, 3]
         else:
             tool_world = cur_transform[:, :3, 3]
-            
+
         # compute jacobian in world frame
         jacobian = torch.zeros((N, 6, ndof), dtype=self.dtype, device=self.device)
         # TODO exclude fixed joints? saves for loop time
@@ -576,8 +598,8 @@ class Chain:
         # TODO can this be vectorized?
         for j in range(ndof):
             for i in range(j, ndof):
-                H[:, :3, i, j] = torch.cross(J[:, 3:, j], J[:, :3, i])
-                H[:, 3:, i, j] = torch.cross(J[:, 3:, j], J[:, 3:, i])
+                H[:, :3, i, j] = torch.linalg.cross(J[:, 3:, j], J[:, :3, i])
+                H[:, 3:, i, j] = torch.linalg.cross(J[:, 3:, j], J[:, 3:, i])
                 if i != j:
                     H[:, :3, j, i] = H[:, :3, i, j]
         return H
@@ -700,6 +722,42 @@ class Chain:
                     return [child] + frames
         return None
 
+    def calc_gravity_vector(self, th, g=torch.tensor([0, 0, -9.81], dtype=torch.float32, device="cpu")):
+        """
+        Compute the gravity vector for a given (batch of) joint configuration
+
+        Args:
+            th: torch.tensor of shape (N, DOF) where N is the batch size and DOF is the number of joints
+
+        Returns:
+            torch.tensor of shape (N, DOF) representing the gravity vector
+        """
+        link_indices = self.get_all_frame_indices()
+
+        if not torch.is_tensor(th):
+            th = torch.tensor(th, dtype=self.dtype, device=self.device)
+        if len(th.shape) <= 1:
+            N = 1
+            th = th.reshape(1, -1)
+        else:
+            N = th.shape[0]
+
+        gravity = g.to(dtype=self.dtype, device=self.device)
+        gravity = gravity.reshape(1, 1, 3, 1).repeat(N, len(link_indices), 1, 1)
+
+        # broadcasting
+        _th = th.unsqueeze(1).repeat(1, len(link_indices), 1)
+        _link_com_offsets = self.link_com_offsets[link_indices].unsqueeze(0).repeat(N, 1, 1)
+        _link_indices = link_indices.unsqueeze(0).repeat(N, 1)
+
+        J = self.jacobian(_th.reshape(-1, th.shape[-1]),
+                          link_indices=_link_indices.reshape(-1),
+                          locations=_link_com_offsets.reshape(-1, 3)).reshape(N, len(link_indices), 6, -1)
+
+        Jm = J[:, :, :3, :] * self.link_masses.reshape(1, -1, 1, 1)
+        g_q = torch.sum(Jm.transpose(2, 3) @ gravity, dim=1).squeeze(-1)
+        return g_q
+
 
 class SerialChain(Chain):
     """
@@ -736,7 +794,7 @@ class SerialChain(Chain):
 
         _, th, joint_indices = self._convert_serial_inputs_to_chain_inputs(False, th)
 
-        return self.calc_jacobian(th, tool=locations, link_indices=link_indices, 
+        return self.calc_jacobian(th, tool=locations, link_indices=link_indices,
                                   tool_in_ee_frame=locations_in_ee_frame)[:, :, joint_indices]
 
     def forward_kinematics(self, th, end_only: bool = True):

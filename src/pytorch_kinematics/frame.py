@@ -21,8 +21,21 @@ class Visual(object):
                                                                             self.geom_param)
 
 
+class Inertial(object):
+
+    def __init__(self, offset=None, mass=0.0, inertia=None):
+        self.offset = offset
+        self.mass = mass
+        self.inertia = inertia
+
+    def __repr__(self):
+        return "Inertial(offset={0}, mass={1}, inertia={2})".format(self.offset,
+                                                                    self.mass,
+                                                                    self.inertia)
+
+
 class Link(object):
-    def __init__(self, name=None, offset=None, visuals=(), collisions=()):
+    def __init__(self, name=None, offset=None, inertial=None, visuals=(), collisions=()):
         if offset is None:
             self.offset = None
         else:
@@ -30,6 +43,7 @@ class Link(object):
         self.name = name
         self.visuals = visuals
         self.collisions = collisions
+        self.inertial = inertial
 
     def to(self, *args, **kwargs):
         if self.offset is not None:

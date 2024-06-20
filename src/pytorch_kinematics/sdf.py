@@ -97,7 +97,7 @@ def build_chain_from_sdf(data):
     root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint(offset=_convert_transform(root_link.pose))
     root_frame.link = frame.Link(root_link.name, tf.Transform3d(),
-                                 _convert_visuals(root_link.visuals))
+                                 visuals=_convert_visuals(root_link.visuals))
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
     return chain.Chain(root_frame)
 
