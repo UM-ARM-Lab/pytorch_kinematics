@@ -10,14 +10,71 @@ from typing import Tuple, Union
 import torch
 
 
+def quaternion_angular_distance(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the angular distance between two quaternions.
+    Args:
+        q1: First quaternion (assume normalized).
+        q2: Second quaternion (assume normalized).
+    Returns:
+        Angular distance between the two quaternions.
+    """
+
+    # Compute the cosine of the angle between the two quaternions
+    cos_theta = torch.sum(q1 * q2, dim=-1)
+    # we use atan2 instead of acos for better numerical stability
+    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    abs_dot = torch.abs(cos_theta)
+    # identity sin^2(theta) = 1 - cos^2(theta)
+    sin_half_theta = torch.sqrt(1.0 - torch.square(abs_dot))
+    theta = 2.0 * torch.atan2(sin_half_theta, abs_dot)
+
+    # theta for the ones that are close gets 0 and we don't care about them
+    close = quaternion_close(q1, q2)
+    theta[close] = 0
+    return theta
+
+
 def quaternion_close(q1: torch.Tensor, q2: torch.Tensor, eps: float = 1e-4):
     """
     Returns true if two quaternions are close to each other. Assumes the quaternions are normalized.
     Based on: https://math.stackexchange.com/a/90098/516340
 
     """
-    dist = 1 - torch.square(torch.sum(q1*q2, dim=-1))
+    dist = 1 - torch.square(torch.sum(q1 * q2, dim=-1))
     return torch.all(dist < eps)
+
+
+def quaternion_slerp(q1: torch.Tensor, q2: torch.Tensor, t: Union[float, torch.tensor]) -> torch.Tensor:
+    """
+    Spherical linear interpolation between two quaternions.
+    Args:
+        q1: First quaternion (assume normalized).
+        q2: Second quaternion (assume normalized).
+        t: Interpolation parameter.
+    Returns:
+        Interpolated quaternion.
+    """
+    # Compute the cosine of the angle between the two quaternions
+    cos_theta = torch.sum(q1 * q2, dim=-1)
+
+    # reverse the direction of q2 if q1 and q2 are not in the same hemisphere
+    to_invert = cos_theta < 0
+    q2[to_invert] = -q2[to_invert]
+    cos_theta[to_invert] = -cos_theta[to_invert]
+
+    # If the quaternions are close, perform a linear interpolation
+    if torch.all(cos_theta > 1.0 - 1e-6):
+        return q1 + t * (q2 - q1)
+
+    # Ensure the angle is between 0 and pi
+    theta = torch.acos(cos_theta)
+    sin_theta = torch.sin(theta)
+
+    # Perform the interpolation
+    w1 = torch.sin((1.0 - t) * theta) / sin_theta
+    w2 = torch.sin(t * theta) / sin_theta
+    return w1[:, None] * q1 + w2[:, None] * q2
 
 
 def acos_linear_extrapolation(

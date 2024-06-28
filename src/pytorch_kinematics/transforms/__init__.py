@@ -14,6 +14,7 @@ from .rotation_conversions import (
     quaternion_raw_multiply,
     quaternion_to_matrix,
     quaternion_from_euler,
+    quaternion_to_axis_angle,
     random_quaternions,
     random_rotation,
     random_rotations,
@@ -35,5 +36,11 @@ from .so3 import (
     so3_rotation_angle,
 )
 from .transform3d import Rotate, RotateAxisAngle, Scale, Transform3d, Translate
+from pytorch_kinematics.transforms.math import (
+    quaternion_angular_distance,
+    acos_linear_extrapolation,
+    quaternion_close,
+    quaternion_slerp,
+)
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

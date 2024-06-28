@@ -1,6 +1,7 @@
 import torch
 
 import pytorch_kinematics.transforms as tf
+import pytorch_kinematics as pk
 
 
 def test_transform():
@@ -106,10 +107,38 @@ def test_euler():
 
 
 def test_quaternions():
+    import pytorch_seed
+    pytorch_seed.seed(0)
+
     n = 10
     q = tf.random_quaternions(n)
     q_tf = tf.wxyz_to_xyzw(q)
     assert torch.allclose(q, tf.xyzw_to_wxyz(q_tf))
+
+    qq = pk.standardize_quaternion(q)
+    assert torch.allclose(qq.norm(dim=-1), torch.ones(n))
+
+    # random quaternions should already be unit quaternions
+    assert torch.allclose(q, qq)
+
+    # distances to themselves should be zero
+    d = pk.quaternion_angular_distance(q, q)
+    assert torch.allclose(d, torch.zeros(n))
+    # q = -q
+    d = pk.quaternion_angular_distance(q, -q)
+    assert torch.allclose(d, torch.zeros(n))
+
+    axis = torch.tensor([0.0, 0.5, 0.5])
+    axis = axis / axis.norm()
+    magnitudes = torch.tensor([2.32, 1.56, -0.52, 0.1])
+    n = len(magnitudes)
+    aa_1 = axis.repeat(n, 1)
+    aa_2 = axis * magnitudes[:, None]
+    q1 = pk.axis_angle_to_quaternion(aa_1)
+    q2 = pk.axis_angle_to_quaternion(aa_2)
+    d = pk.quaternion_angular_distance(q1, q2)
+    expected_d = (magnitudes - 1).abs()
+    assert torch.allclose(d, expected_d, atol=1e-4)
 
 
 def test_compose():
@@ -124,6 +153,19 @@ def test_compose():
     print(a2c.transform_points(torch.zeros([1, 3])))
 
 
+def test_quaternion_slerp():
+    q = tf.random_quaternions(20)
+    q1 = q[:10]
+    q2 = q[10:]
+    t = torch.rand(10)
+    q_interp = pk.quaternion_slerp(q1, q2, t)
+    # check the distance between them is consistent
+    full_dist = pk.quaternion_angular_distance(q1, q2)
+    interp_dist = pk.quaternion_angular_distance(q1, q_interp)
+    # print(f"full_dist: {full_dist} interp_dist: {interp_dist} t: {t}")
+    assert torch.allclose(full_dist * t, interp_dist, atol=1e-5)
+
+
 if __name__ == "__main__":
     test_compose()
     test_transform()
@@ -132,3 +174,4 @@ if __name__ == "__main__":
     test_rotate()
     test_euler()
     test_quaternions()
+    test_quaternion_slerp()
