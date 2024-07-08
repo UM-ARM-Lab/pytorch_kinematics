@@ -182,7 +182,6 @@ class Chain:
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.link_com_offsets = self.link_com_offsets.to(dtype=self.dtype, device=self.device)
         self.link_masses = self.link_masses.to(dtype=self.dtype, device=self.device)
-        print(self.link_com_offsets.shape, self.link_masses.shape)
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_offsets]
         self.low = self.low.to(dtype=self.dtype, device=self.device)
