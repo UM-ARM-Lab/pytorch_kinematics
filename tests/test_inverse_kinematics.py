@@ -72,6 +72,11 @@ def test_jacobian_follower():
     print("IK took %d iterations" % sol.iterations)
     print("IK solved %d / %d goals" % (sol.converged_any.sum(), M))
 
+    # check that solving again produces the same solutions
+    sol_again = ik.solve(goal_in_rob_frame_tf)
+    assert torch.allclose(sol.solutions, sol_again.solutions)
+    assert torch.allclose(sol.converged, sol_again.converged)
+
     # visualize everything
     if visualize:
         p.connect(p.GUI)
@@ -132,5 +137,53 @@ def test_jacobian_follower():
             p.stepSimulation()
 
 
+def test_ik_in_place_no_err():
+    pytorch_seed.seed(2)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cpu"
+    urdf = "kuka_iiwa/model.urdf"
+    search_path = pybullet_data.getDataPath()
+    full_urdf = os.path.join(search_path, urdf)
+    chain = pk.build_serial_chain_from_urdf(open(full_urdf).read(), "lbr_iiwa_link_7")
+    chain = chain.to(device=device)
+
+    # robot frame
+    pos = torch.tensor([0.0, 0.0, 0.0], device=device)
+    rot = torch.tensor([0.0, 0.0, 0.0], device=device)
+    rob_tf = pk.Transform3d(pos=pos, rot=rot, device=device)
+
+    # goal equal to current configuration
+    lim = torch.tensor(chain.get_joint_limits(), device=device)
+    cur_q = torch.rand(7, device=device) * (lim[1] - lim[0]) + lim[0]
+    M = 1
+    goal_q = cur_q.unsqueeze(0).repeat(M, 1)
+
+    # get ee pose (in robot frame)
+    goal_in_rob_frame_tf = chain.forward_kinematics(goal_q)
+
+    # transform to world frame for visualization
+    goal_tf = rob_tf.compose(goal_in_rob_frame_tf)
+    goal = goal_tf.get_matrix()
+    goal_pos = goal[..., :3, 3]
+    goal_rot = pk.matrix_to_euler_angles(goal[..., :3, :3], "XYZ")
+
+    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10,
+                            joint_limits=lim.T,
+                            early_stopping_any_converged=True,
+                            early_stopping_no_improvement="all",
+                            retry_configs=cur_q.reshape(1, -1),
+                            # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
+                            debug=False,
+                            lr=0.2)
+
+    # do IK
+    sol = ik.solve(goal_in_rob_frame_tf)
+    assert sol.converged.sum() == M
+    assert torch.allclose(sol.solutions[0][0], cur_q)
+    assert torch.allclose(sol.err_pos[0], torch.zeros(1, device=device), atol=1e-6)
+    assert torch.allclose(sol.err_rot[0], torch.zeros(1, device=device), atol=1e-6)
+
+
 if __name__ == "__main__":
     test_jacobian_follower()
+    test_ik_in_place_no_err()

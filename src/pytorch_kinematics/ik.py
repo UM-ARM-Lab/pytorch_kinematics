@@ -205,6 +205,12 @@ class InverseKinematics:
         # could give a batch of initial configs
         self.num_retries = self.initial_config.shape[-2]
 
+    def clear(self):
+        self.err = None
+        self.err_all = None
+        self.err_min = None
+        self.no_improve_counter = None
+
     def sample_configs(self, num_configs: int) -> torch.Tensor:
         if self.config_sampling_method == "uniform":
             # bound by joint_limits
@@ -274,6 +280,8 @@ class PseudoInverseIK(InverseKinematics):
         return dq
 
     def solve(self, target_poses: Transform3d) -> IKSolution:
+        self.clear()
+
         target = target_poses.get_matrix()
 
         M = target.shape[0]
@@ -291,6 +299,8 @@ class PseudoInverseIK(InverseKinematics):
         elif q.numel() == self.dof * self.num_retries:
             # repeat and manually flatten it
             q = self.initial_config.repeat(M, 1)
+        elif q.numel() == self.dof:
+            q = q.unsqueeze(0).repeat(M * self.num_retries, 1)
         else:
             raise ValueError(
                 f"initial_config must have shape ({M}, {self.num_retries}, {self.dof}) or ({self.num_retries}, {self.dof})")
