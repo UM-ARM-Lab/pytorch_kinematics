@@ -451,6 +451,8 @@ class SerialChain(Chain):
     def _generate_serial_chain_recurse(root_frame, end_frame_name):
         for child in root_frame.children:
             if child.name == end_frame_name:
+                # chop off any remaining tree after end frame
+                child.children = []
                 return [child]
             else:
                 frames = SerialChain._generate_serial_chain_recurse(child, end_frame_name)
