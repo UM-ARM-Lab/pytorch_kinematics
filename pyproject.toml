@@ -1,5 +1,5 @@
 [project]
-name = "pytorch_kinematics"
+name = "pytorch_kinematics_ms"
 version = "0.7.2"
 description = "Robot kinematics implemented in pytorch"
 readme = "README.md" # Optional
@@ -42,7 +42,6 @@ classifiers = [# Optional
 dependencies = [
     'absl-py',
     'lxml',
-    "mujoco",
     'numpy<2', # pybullet requires numpy<2 for testing; for future versions this may be relaxed
     'pyyaml',
     'torch',
