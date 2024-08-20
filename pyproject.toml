@@ -42,7 +42,6 @@ classifiers = [# Optional
 dependencies = [
     'absl-py',
     'lxml',
-    "mujoco",
     'numpy<2', # pybullet requires numpy<2 for testing; for future versions this may be relaxed
     'pyyaml',
     'torch',

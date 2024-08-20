@@ -14,7 +14,7 @@ def _convert_transform(origin):
     if origin is None:
         return tf.Transform3d()
     else:
-        rpy = torch.tensor(origin.rpy, dtype=torch.float32)
+        rpy = torch.tensor(origin.rpy, dtype=torch.float32, device="cpu")
         return tf.Transform3d(rot=tf.quaternion_from_euler(rpy, "sxyz"), pos=origin.xyz)
 
 
