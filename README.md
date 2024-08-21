@@ -174,6 +174,8 @@ Compared to other IK libraries, these are the typical advantages over them:
 - batched in both goal specification and retries from different starting configurations
 - goal orientation in addition to goal position
 
+![IK](https://i.imgur.com/QgaUME9.gif)
+
 See `tests/test_inverse_kinematics.py` for usage, but generally what you need is below:
 ```python
 full_urdf = os.path.join(search_path, urdf)
