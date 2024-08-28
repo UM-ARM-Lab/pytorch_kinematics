@@ -213,20 +213,34 @@ def test_extract_serial_chain_from_tree():
     # device = "cpu"
     urdf = "widowx/wx250s.urdf"
     full_urdf = os.path.join(TEST_DIR, urdf)
-    chain = pk.build_serial_chain_from_urdf(open(full_urdf, mode="rb").read(), "ee_gripper_link")
-    # chain = pk.SerialChain(chain, "ee_gripper_link", "base_link")
+    chain = pk.build_chain_from_urdf(open(full_urdf, mode="rb").read())
+    # full frames
+    full_frame_expected = """
+base_link
+└── shoulder_link
+    └── upper_arm_link
+        └── upper_forearm_link
+            └── lower_forearm_link
+                └── wrist_link
+                    └── gripper_link
+                        └── ee_arm_link
+                            ├── gripper_prop_link
+                            └── gripper_bar_link
+                                └── fingers_link
+                                    ├── left_finger_link
+                                    ├── right_finger_link
+                                    └── ee_gripper_link
+    """
+    full_frame = chain.print_link_tree()
+    assert full_frame_expected.strip() == full_frame.strip()
+
+    chain = pk.SerialChain(chain, "ee_gripper_link", "base_link")
+    serial_frame = chain.print_link_tree()
     chain = chain.to(device=device)
 
     # full chain should have DOF = 8, however since we are creating just a serial chain to ee_gripper_link, should be 6
-    # TODO pretty tree print
-    """
-    /
-    └── gripper_bar_link
-        └── fingers_link
-            ├── left_finger_link
-            ├── right_finger_link
-            └── ee_gripper_link
-    """
+    dof = len(chain.get_joints(exclude_fixed=True))
+    assert dof == 6
 
     # robot frame
     pos = torch.tensor([0.0, 0.0, 0.0], device=device)

@@ -280,6 +280,12 @@ class Chain:
     def get_frame_indices(self, *frame_names):
         return torch.tensor([self.frame_to_idx[n] for n in frame_names], dtype=torch.long, device=self.device)
 
+    def print_link_tree(self, do_print=True):
+        tree = str(self._root)
+        if do_print:
+            print(tree)
+        return tree
+
     def forward_kinematics(self, th, frame_indices: Optional = None):
         """
         Compute forward kinematics for the given joint values.

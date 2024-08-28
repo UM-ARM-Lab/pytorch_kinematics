@@ -85,6 +85,13 @@ class Joint(object):
                                                                                   self.axis)
 
 
+# prefix components:
+space =  '    '
+branch = '│   '
+# pointers:
+tee =    '├── '
+last =   '└── '
+
 class Frame(object):
     def __init__(self, name=None, link=None, joint=None, children=None):
         self.name = 'None' if name is None else name
@@ -93,10 +100,18 @@ class Frame(object):
         if children is None:
             self.children = []
 
-    def __str__(self, level=0):
-        ret = " \t" * level + self.name + "\n"
-        for child in self.children:
-            ret += child.__str__(level + 1)
+    def __str__(self, prefix='', root=True):
+        pointers = [tee] * (len(self.children) - 1) + [last]
+        if root:
+            ret = prefix + self.name + "\n"
+        else:
+            ret = ""
+        for pointer, child in zip(pointers, self.children):
+            ret += prefix + pointer + child.name + "\n"
+            if child.children:
+                extension = branch if pointer == tee else space
+                # i.e. space because last, └── , above so no more |
+                ret += child.__str__(prefix=prefix + extension, root=False)
         return ret
 
     def to(self, *args, **kwargs):
