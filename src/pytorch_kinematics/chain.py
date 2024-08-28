@@ -202,10 +202,10 @@ class Chain:
     @lru_cache()
     def get_joint_parameter_names(self, exclude_fixed=True):
         names = []
-        for f in self.get_joints(exclude_fixed=exclude_fixed):
-            if exclude_fixed and f.joint.joint_type == 'fixed':
+        for j in self.get_joints(exclude_fixed=exclude_fixed):
+            if exclude_fixed and j.joint_type == 'fixed':
                 continue
-            names.append(f.joint.name)
+            names.append(j.name)
         return names
 
     @staticmethod
@@ -242,15 +242,6 @@ class Chain:
         return sorted(set(names), key=names.index)
 
     @staticmethod
-    def _get_joint_parameter_names(frame: Frame, exclude_fixed=True) -> Sequence[str]:
-        joint_names = []
-        if not (exclude_fixed and frame.joint.joint_type == "fixed"):
-            joint_names.append(frame.joint.name)
-        for child in frame.children:
-            joint_names.extend(Chain._get_joint_parameter_names(child, exclude_fixed))
-        return joint_names
-
-    @staticmethod
     def _get_frame_names(frame: Frame, exclude_fixed=True) -> Sequence[str]:
         names = []
         if not (exclude_fixed and frame.joint.joint_type == "fixed"):
@@ -258,10 +249,6 @@ class Chain:
         for child in frame.children:
             names.extend(Chain._get_frame_names(child, exclude_fixed))
         return names
-
-    def get_joint_parameter_names(self, exclude_fixed=True):
-        names = self._get_joint_parameter_names(self._root, exclude_fixed)
-        return sorted(set(names), key=names.index)
 
     def get_frame_names(self, exclude_fixed=True):
         names = self._get_frame_names(self._root, exclude_fixed)
