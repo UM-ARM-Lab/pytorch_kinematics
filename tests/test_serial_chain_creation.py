@@ -29,7 +29,7 @@ base_link
                                     ├── right_finger_link
                                     └── ee_gripper_link
     """
-    full_frame = chain.print_link_tree()
+    full_frame = chain.print_tree()
     assert full_frame_expected.strip() == full_frame.strip()
 
     serial_chain = pk.SerialChain(chain, "ee_gripper_link", "base_link")
@@ -46,7 +46,7 @@ base_link
                                 └── fingers_link
                                     └── ee_gripper_link
     """
-    serial_frame = serial_chain.print_link_tree()
+    serial_frame = serial_chain.print_tree()
     assert serial_frame_expected.strip() == serial_frame.strip()
 
     # full chain should have DOF = 8, however since we are creating just a serial chain to ee_gripper_link, should be 6
@@ -65,7 +65,7 @@ base_link
                         └── ee_arm_link
                             └── gripper_prop_link
     """
-    serial_frame = serial_chain.print_link_tree()
+    serial_frame = serial_chain.print_tree()
     assert serial_frame_expected.strip() == serial_frame.strip()
 
     serial_chain = pk.SerialChain(chain, "ee_gripper_link", "gripper_link")
@@ -76,7 +76,7 @@ base_link
         └── fingers_link
             └── ee_gripper_link
         """
-    serial_frame = serial_chain.print_link_tree()
+    serial_frame = serial_chain.print_tree()
     assert serial_frame_expected.strip() == serial_frame.strip()
     # only gripper_link is the parent frame of a joint in this serial chain
     assert serial_chain.n_joints == 1
