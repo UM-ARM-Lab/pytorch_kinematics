@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Optional, Sequence
 
+import copy
 import numpy as np
 import torch
 
@@ -430,28 +431,29 @@ class SerialChain(Chain):
     """
 
     def __init__(self, chain, end_frame_name, root_frame_name="", **kwargs):
-        if root_frame_name == "":
-            super().__init__(chain._root, **kwargs)
-        else:
-            super().__init__(chain.find_frame(root_frame_name), **kwargs)
-            if self._root is None:
-                raise ValueError("Invalid root frame name %s." % root_frame_name)
-        self._serial_frames = [self._root] + self._generate_serial_chain_recurse(self._root, end_frame_name)
-        if self._serial_frames is None:
-            raise ValueError("Invalid end frame name %s." % end_frame_name)
+        root_frame = chain._root if root_frame_name == "" else chain.find_frame(root_frame_name)
+        if root_frame is None:
+            raise ValueError("Invalid root frame name %s." % root_frame_name)
+        chain = Chain(root_frame, **kwargs)
 
-    @staticmethod
-    def _generate_serial_chain_recurse(root_frame, end_frame_name):
-        for child in root_frame.children:
-            if child.name == end_frame_name:
-                # chop off any remaining tree after end frame
-                child.children = []
-                return [child]
-            else:
-                frames = SerialChain._generate_serial_chain_recurse(child, end_frame_name)
-                if not frames is None:
-                    return [child] + frames
-        return None
+        # make a copy of those frames that includes only the chain up to the end effector
+        end_frame_idx = chain.get_frame_indices(end_frame_name)
+        ancestors = chain.parents_indices[end_frame_idx]
+
+        frames = []
+        # first pass create copies of the ancestor nodes
+        for idx in ancestors:
+            this_frame_name = chain.idx_to_frame[idx.item()]
+            this_frame = copy.deepcopy(chain.find_frame(this_frame_name))
+            if idx == end_frame_idx:
+                this_frame.children = []
+            frames.append(this_frame)
+        # second pass assign correct children (only the next one in the frame list)
+        for i in range(len(ancestors) - 1):
+            frames[i].children = [frames[i + 1]]
+
+        self._serial_frames = frames
+        super().__init__(frames[0], **kwargs)
 
     def jacobian(self, th, locations=None, **kwargs):
         if locations is not None:

@@ -133,5 +133,4 @@ def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
         SerialChain object created from URDF.
     """
     urdf_chain = build_chain_from_urdf(data)
-    return chain.SerialChain(urdf_chain, end_link_name,
-                             "" if root_link_name == "" else root_link_name)
+    return chain.SerialChain(urdf_chain, end_link_name, root_link_name or '')
