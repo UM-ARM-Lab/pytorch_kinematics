@@ -150,9 +150,9 @@ def test_fk_simple_arm():
     # print(chain.get_joint_parameter_names())
     ret = chain.forward_kinematics({
         'arm_shoulder_pan_joint': 0.,
-        'arm_elbow_pan_joint':    math.pi / 2.0,
-        'arm_wrist_lift_joint':   -0.5,
-        'arm_wrist_roll_joint':   0.,
+        'arm_elbow_pan_joint': math.pi / 2.0,
+        'arm_wrist_lift_joint': -0.5,
+        'arm_wrist_roll_joint': 0.,
     })
     tg = ret['arm_wrist_roll']
     pos, rot = quat_pos_from_transform3d(tg)
@@ -189,9 +189,9 @@ def test_cuda():
 
         ret = chain.forward_kinematics({
             'arm_shoulder_pan_joint': 0,
-            'arm_elbow_pan_joint':    math.pi / 2.0,
-            'arm_wrist_lift_joint':   -0.5,
-            'arm_wrist_roll_joint':   0,
+            'arm_elbow_pan_joint': math.pi / 2.0,
+            'arm_wrist_lift_joint': -0.5,
+            'arm_wrist_roll_joint': 0,
         })
         tg = ret['arm_wrist_roll']
         pos, rot = quat_pos_from_transform3d(tg)
@@ -280,6 +280,28 @@ def test_fk_partial_batched():
     tg = chain.forward_kinematics(th)
 
 
+def test_ur5_fk():
+    pk_chain = pk.build_serial_chain_from_urdf(open('ur5.urdf').read(), 'ee_link', 'base_link')
+    th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0]
+
+    try:
+        import ikpy.chain
+        ik_chain = ikpy.chain.Chain.from_urdf_file('ur5.urdf',
+                                                   active_links_mask=[False, True, True, True, True, True, True, False])
+        ik_ret = ik_chain.forward_kinematics([0, *th, 0])
+    except ImportError:
+        ik_ret = [[-6.44330720e-18, 3.58979314e-09, -1.00000000e+00, 5.10955359e-01],
+                  [1.00000000e+00, 1.79489651e-09, 0.00000000e+00, 1.91450000e-01],
+                  [1.79489651e-09, -1.00000000e+00, -3.58979312e-09, 6.00114361e-01],
+                  [0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 1.00000000e+00]]
+
+    ret = pk_chain.forward_kinematics(th, end_only=True)
+    print(ret.get_matrix())
+    ik_ret = torch.tensor(ik_ret, dtype=ret.dtype)
+    print(ik_ret)
+    assert torch.allclose(ik_ret, ret.get_matrix(), atol=1e-6)
+
+
 if __name__ == "__main__":
     test_fk_partial_batched()
     test_fk_partial_batched_dict()
@@ -293,3 +315,4 @@ if __name__ == "__main__":
     test_urdf()
     # test_fk_mjcf_humanoid()
     test_mjcf_slide_joint_parsing()
+    test_ur5_fk()
