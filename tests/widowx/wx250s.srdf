@@ -1,0 +1,11 @@
+<robot name="wx250s">
+  <disable_collisions link1="base_link" link2="upper_arm_link" reason="Default"/>
+  <disable_collisions link1="gripper_link" link2="left_finger_link" reason="Default"/>
+  <disable_collisions link1="gripper_link" link2="right_finger_link" reason="Default"/>
+
+  <disable_collisions link1="gripper_bar_link" link2="gripper_link" reason="Default"/>
+  <disable_collisions link1="gripper_bar_link" link2="left_finger_link" reason="Default"/>
+  <disable_collisions link1="gripper_bar_link" link2="right_finger_link" reason="Default"/>
+
+  <disable_collisions link1="left_finger_link" link2="right_finger_link" reason="Default"/>
+</robot>
