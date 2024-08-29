@@ -170,16 +170,11 @@ def test_jacobian_follower(robot="kuka_iiwa"):
             p.stepSimulation()
 
 
-def test_ik_in_place_no_err():
+def test_ik_in_place_no_err(robot="kuka_iiwa"):
     pytorch_seed.seed(2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # device = "cpu"
-    urdf = "kuka_iiwa/model.urdf"
-    search_path = pybullet_data.getDataPath()
-    full_urdf = os.path.join(search_path, urdf)
-    chain = pk.build_serial_chain_from_urdf(open(full_urdf).read(), "lbr_iiwa_link_7")
-    chain = chain.to(device=device)
-
+    chain, urdf = create_test_chain(robot=robot, device=device)
     # robot frame
     pos = torch.tensor([0.0, 0.0, 0.0], device=device)
     rot = torch.tensor([0.0, 0.0, 0.0], device=device)
@@ -187,7 +182,7 @@ def test_ik_in_place_no_err():
 
     # goal equal to current configuration
     lim = torch.tensor(chain.get_joint_limits(), device=device)
-    cur_q = torch.rand(7, device=device) * (lim[1] - lim[0]) + lim[0]
+    cur_q = torch.rand(lim.shape[1], device=device) * (lim[1] - lim[0]) + lim[0]
     M = 1
     goal_q = cur_q.unsqueeze(0).repeat(M, 1)
 
@@ -220,6 +215,9 @@ def test_ik_in_place_no_err():
 
 
 if __name__ == "__main__":
-    # test_jacobian_follower(robot="kuka_iiwa")
+    print("Testing kuka_iiwa IK")
+    test_jacobian_follower(robot="kuka_iiwa")
+    test_ik_in_place_no_err(robot="kuka_iiwa")
+    print("Testing widowx IK")
     test_jacobian_follower(robot="widowx")
-    test_ik_in_place_no_err()
+    test_ik_in_place_no_err(robot="widowx")
