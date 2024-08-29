@@ -281,12 +281,13 @@ def test_fk_partial_batched():
 
 
 def test_ur5_fk():
-    pk_chain = pk.build_serial_chain_from_urdf(open('ur5.urdf').read(), 'ee_link', 'base_link')
+    urdf = os.path.join(TEST_DIR, "ur5.urdf")
+    pk_chain = pk.build_serial_chain_from_urdf(open(urdf).read(), 'ee_link', 'base_link')
     th = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0]
 
     try:
         import ikpy.chain
-        ik_chain = ikpy.chain.Chain.from_urdf_file('ur5.urdf',
+        ik_chain = ikpy.chain.Chain.from_urdf_file(urdf,
                                                    active_links_mask=[False, True, True, True, True, True, True, False])
         ik_ret = ik_chain.forward_kinematics([0, *th, 0])
     except ImportError:
