@@ -10,10 +10,6 @@ pip install pytorch-kinematics
 
 For development, clone repository somewhere, then `pip3 install -e .` to install in editable mode.
 
-# Usage
-
-See `tests` for code samples; some are also shown here.
-
 ## Reference
 [![DOI](https://zenodo.org/badge/331721571.svg)](https://zenodo.org/badge/latestdoi/331721571)
 
@@ -27,6 +23,65 @@ title = {{PyTorch Kinematics}},
 version = {v0.7.1},
 year = {2024}
 }
+```
+
+# Usage
+
+See `tests` for code samples; some are also shown here.
+
+## Loading Robots
+```python
+import pytorch_kinematics as pk
+
+urdf = "widowx/wx250s.urdf"
+# there are multiple natural end effector links so it's not a serial chain
+chain = pk.build_chain_from_urdf(open(urdf, mode="rb").read())
+# visualize the frames (the string is also returned)
+chain.print_tree()
+"""
+base_link
+└── shoulder_link
+    └── upper_arm_link
+        └── upper_forearm_link
+            └── lower_forearm_link
+                └── wrist_link
+                    └── gripper_link
+                        └── ee_arm_link
+                            ├── gripper_prop_link
+                            └── gripper_bar_link
+                                └── fingers_link
+                                    ├── left_finger_link
+                                    ├── right_finger_link
+                                    └── ee_gripper_link
+"""
+
+# extract a specific serial chain such as for inverse kinematics
+serial_chain = pk.SerialChain(chain, "ee_gripper_link", "base_link")
+serial_chain.print_tree()
+"""
+base_link
+└── shoulder_link
+    └── upper_arm_link
+        └── upper_forearm_link
+            └── lower_forearm_link
+                └── wrist_link
+                    └── gripper_link
+                        └── ee_arm_link
+                            └── gripper_bar_link
+                                └── fingers_link
+                                    └── ee_gripper_link
+"""
+
+# you can also extract a serial chain with a different root than the original chain
+serial_chain = pk.SerialChain(chain, "ee_gripper_link", "gripper_link")
+serial_chain.print_tree()
+"""
+ gripper_link
+└── ee_arm_link
+    └── gripper_bar_link
+        └── fingers_link
+            └── ee_gripper_link
+"""
 ```
 
 ## Forward Kinematics (FK)
