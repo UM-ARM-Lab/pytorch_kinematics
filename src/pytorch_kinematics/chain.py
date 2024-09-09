@@ -112,7 +112,10 @@ class Chain:
                     self.link_com_offset.append(root.link.inertial.offset.get_matrix()[0, :3, 3])
                 else:
                     # compose transformations then get translation
-                    self.link_com_offsets.append(
+                    if root.link.inertial.offset is None:
+                        self.link_com_offsets.append(root.link.offset.get_matrix()[0, :3, 3])
+                    else:
+                        self.link_com_offsets.append(
                         (root.link.offset.get_matrix() @ root.link.inertial.offset.get_matrix())[0, :3, 3])
 
                 self.link_masses.append(root.link.inertial.mass)
