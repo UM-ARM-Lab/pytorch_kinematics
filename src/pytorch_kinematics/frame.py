@@ -133,7 +133,8 @@ class Frame(object):
             rot = axis_and_angle_to_matrix_33(self.joint.axis, theta)
             t = tf.Transform3d(rot=rot, dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
-            t = tf.Transform3d(pos=theta * self.joint.axis, dtype=dtype, device=d)
+            pos = theta.unsqueeze(1) * self.joint.axis
+            t = tf.Transform3d(pos=pos, dtype=dtype, device=d)
         elif self.joint.joint_type == 'fixed':
             t = tf.Transform3d(default_batch_size=theta.shape[0], dtype=dtype, device=d)
         else:
