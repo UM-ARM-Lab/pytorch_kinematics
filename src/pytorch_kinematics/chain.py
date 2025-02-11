@@ -194,7 +194,13 @@ class Chain:
 
     def __str__(self):
         return str(self._root)
-
+    
+    def print_tree(self, do_print=True):
+        tree = str(self._root)
+        if do_print:
+            print(tree)
+        return tree
+    
     @staticmethod
     def _find_frame_recursive(name, frame: Frame) -> Optional[Frame]:
         for child in frame.children:
@@ -436,10 +442,15 @@ class Chain:
         else:
             return torch.stack([v for v in th_dict.values()], dim=-1)
 
-    def get_joint_limits(self):
+    def get_joint_limits(self, serial=False):
         low = []
         high = []
-        for joint_name in self.get_joint_parameter_names(exclude_fixed=True):
+        # if is an instance of serialchain
+        if serial and isinstance(self, SerialChain):
+            joint_names = [j.joint.name for j in self._serial_frames_no_fixed]
+        else:
+            joint_names = self.get_joint_parameter_names(exclude_fixed=True)
+        for joint_name in joint_names:
             joint = self.find_joint(joint_name)
             if joint.limits is None:
                 low.append(-np.pi)
@@ -489,7 +500,7 @@ class Chain:
         return self.calc_jacobian_and_hessian(th, tool=locations, link_indices=link_indices, analytic=analytic,
                                               tool_in_ee_frame=locations_in_ee_frame)
 
-    def calc_jacobian(self, th, tool=None, link_indices=None, analytic=False, tool_in_ee_frame=True):
+    def calc_jacobian(self, th, tool=None, link_indices=None, analytic=False, tool_in_ee_frame=True, ret_eef_pose=False):
         """
         Return robot Jacobian J in base frame (N,6,DOF) where dot{x} = J dot{q}
         The first 3 rows relate the translational velocities and the
@@ -591,6 +602,8 @@ class Chain:
             )
             jacobian = T @ jacobian
 
+        if ret_eef_pose:
+            return jacobian, ee_transform
         return jacobian
 
     def calc_hessian(self, J):
@@ -775,10 +788,14 @@ class SerialChain(Chain):
             if self._root is None:
                 raise ValueError("Invalid root frame name %s." % root_frame_name)
         self._serial_frames = [self._root] + self._generate_serial_chain_recurse(self._root, end_frame_name)
+
+        # Filter out fixed joints
+        self._serial_frames_no_fixed = list(filter(lambda f: f.joint.joint_type != 'fixed', self._serial_frames))
         if self._serial_frames is None:
             raise ValueError("Invalid end frame name %s." % end_frame_name)
 
-    def jacobian(self, th, locations=None, link_indices=None, locations_in_ee_frame=True):
+    def jacobian(self, th, locations=None, link_indices=None, locations_in_ee_frame=True,
+                 ret_eef_pose=False):
         if locations is not None:
             locations = tf.Transform3d(pos=locations)
 
@@ -796,8 +813,14 @@ class SerialChain(Chain):
 
         _, th, joint_indices = self._convert_serial_inputs_to_chain_inputs(False, th)
 
+        if ret_eef_pose:
+            J, m = self.calc_jacobian(th, tool=locations, link_indices=link_indices,
+                                      tool_in_ee_frame=locations_in_ee_frame, ret_eef_pose=True)
+            J = J[:, :, joint_indices]
+            return J, m
+
         return self.calc_jacobian(th, tool=locations, link_indices=link_indices,
-                                  tool_in_ee_frame=locations_in_ee_frame)[:, :, joint_indices]
+                                tool_in_ee_frame=locations_in_ee_frame)[:, :, joint_indices]
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
@@ -843,3 +866,6 @@ class SerialChain(Chain):
         else:
             joint_indices = range(self.n_joints)
         return frame_indices, th, joint_indices
+    
+    def get_n_non_fixed_joints(self):
+        return len(self._serial_frames_no_fixed)

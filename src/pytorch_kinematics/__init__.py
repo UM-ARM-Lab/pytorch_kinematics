@@ -3,3 +3,4 @@ from pytorch_kinematics.urdf import *
 from pytorch_kinematics.mjcf import *
 from pytorch_kinematics.transforms import *
 from pytorch_kinematics.chain import *
+from pytorch_kinematics.ik import *
