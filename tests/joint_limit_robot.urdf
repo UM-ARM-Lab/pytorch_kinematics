@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<robot name="joint_limit_robot">
+    <!-- 
+        This robot is designed just to test that the velocity and effort limits
+        are captured properly. It consists of revolute, prismatic, and fixed
+        joints, is not a serial chain, and algorithmically defines velocity
+        and effort limits as a function of the joint number (v = j, e = j + 4)
+        for easy validation.
+    -->
+    <link name="link1" />
+    <link name="link2" />
+    <link name="link3" />
+    <link name="link4" />
+    <link name="link5" />
+    <link name="link6" />
+
+    <joint name="joint1" type="revolute">
+        <origin xyz="0.0 0.0 1.0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-0.5" upper="0.5" effort="5" velocity="1"/>
+        <parent link="link1"/>
+        <child link="link2"/>
+    </joint>
+    <joint name="joint2" type="prismatic">
+        <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="0" upper="0.5" effort="6" velocity="2"/>
+        <parent link="link2"/>
+        <child link="link3"/>
+    </joint>
+    <joint name="joint3" type="revolute">
+        <origin xyz="0.0 0.0 0.0" rpy="0 0 1.57079632679"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-0.5" upper="0.5" effort="7" velocity="3"/>
+        <parent link="link3"/>
+        <child link="link4"/>
+    </joint>
+    <joint name="joint4" type="revolute">
+        <origin xyz="0.0 0.0 0.0" rpy="0 0 -1.57079632679"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-0.5" upper="0.5" effort="8" velocity="4"/>
+        <parent link="link3"/>
+        <child link="link5"/>
+    </joint>
+    <joint name="joint5" type="fixed">
+        <parent link="link5"/>
+        <child link="link6"/>
+        <origin xyz="0.3 0.0 0.0"/>
+    </joint>
+
+</robot>

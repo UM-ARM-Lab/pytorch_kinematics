@@ -49,9 +49,19 @@ def _build_chain_recurse(root_frame, lmap, joints):
                 limits = (j.limit.lower, j.limit.upper)
             except AttributeError:
                 limits = None
+            # URDF assumes symmetric velocity and effort limits
+            try:
+                velocity_limits = (-j.limit.velocity, j.limit.velocity)
+            except AttributeError:
+                velocity_limits = None
+            try:
+                effort_limits = (-j.limit.effort, j.limit.effort)
+            except AttributeError:
+                effort_limits = None
             child_frame = frame.Frame(j.child)
             child_frame.joint = frame.Joint(j.name, offset=_convert_transform(j.origin),
-                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits)
+                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits,
+                                            velocity_limits=velocity_limits, effort_limits=effort_limits)
             link = lmap[j.child]
             child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
                                           visuals=[_convert_visual(link.visual)])
