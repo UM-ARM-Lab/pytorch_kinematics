@@ -45,7 +45,8 @@ class Joint(object):
     TYPES = ['fixed', 'revolute', 'prismatic']
 
     def __init__(self, name=None, offset=None, joint_type='fixed', axis=(0.0, 0.0, 1.0),
-                 dtype=torch.float32, device="cpu", limits=None):
+                 dtype=torch.float32, device="cpu", limits=None,
+                 velocity_limits=None, effort_limits=None):
         if offset is None:
             self.offset = None
         else:
@@ -65,6 +66,8 @@ class Joint(object):
         self.axis = self.axis / self.axis.norm()
 
         self.limits = limits
+        self.velocity_limits = velocity_limits
+        self.effort_limits = effort_limits
 
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
