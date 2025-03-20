@@ -404,16 +404,14 @@ class Chain:
     def _get_joint_limits(self, param_name):
         low = []
         high = []
-        # Min and max velocity and effor default to +/- inf
-        default = np.inf
-        if param_name == "limits":
-            # Min and max joint limits default to +/- pi
-            default = np.pi
         for joint in self.get_joints():
             val = getattr(joint, param_name)
             if val is None:
-                low.append(-default)
-                high.append(default)
+                # NOTE: This changes the previous default behavior of returning
+                # +/- np.pi for joint limits to be more natural for both
+                # revolute and prismatic joints
+                low.append(-np.inf)
+                high.append(np.inf)
             else:
                 low.append(val[0])
                 high.append(val[1])
