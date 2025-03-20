@@ -393,17 +393,30 @@ class Chain:
         return torch.clamp(th, self.low, self.high)
 
     def get_joint_limits(self):
+        return self._get_joint_limits("limits")
+
+    def get_joint_velocity_limits(self):
+        return self._get_joint_limits("velocity_limits")
+
+    def get_joint_effort_limits(self):
+        return self._get_joint_limits("effort_limits")
+
+    def _get_joint_limits(self, param_name):
         low = []
         high = []
-        for joint_name in self.get_joint_parameter_names(exclude_fixed=True):
-            joint = self.find_joint(joint_name)
-            if joint.limits is None:
-                low.append(-np.pi)
-                high.append(np.pi)
+        # Min and max velocity and effor default to +/- inf
+        default = np.inf
+        if param_name == "limits":
+            # Min and max joint limits default to +/- pi
+            default = np.pi
+        for joint in self.get_joints():
+            val = getattr(joint, param_name)
+            if val is None:
+                low.append(-default)
+                high.append(default)
             else:
-                low.append(joint.limits[0])
-                high.append(joint.limits[1])
-
+                low.append(val[0])
+                high.append(val[1])
         return low, high
 
     @staticmethod
