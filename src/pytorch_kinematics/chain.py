@@ -610,13 +610,33 @@ class Chain:
         # TODO could be static method
         N, d_ee, ndof = J.shape
         H = torch.zeros(N, d_ee, ndof, ndof, device=self.device, dtype=self.dtype)
-        # TODO can this be vectorized?
-        for j in range(ndof):
-            for i in range(j, ndof):
-                H[:, :3, i, j] = torch.linalg.cross(J[:, 3:, j], J[:, :3, i])
-                H[:, 3:, i, j] = torch.linalg.cross(J[:, 3:, j], J[:, 3:, i])
-                if i != j:
-                    H[:, :3, j, i] = H[:, :3, i, j]
+        
+        # Extract angular and linear parts of the Jacobian
+        J_angular = J[:, 3:, :]  # (N, 3, ndof) - angular velocities
+        J_linear = J[:, :3, :]   # (N, 3, ndof) - linear velocities
+        
+        # Create lower triangular indices (including diagonal) - matches original loop: i >= j
+        # torch.tril_indices gives (i,j) where i >= j, which is what we want
+        tril_indices = torch.tril_indices(ndof, ndof, offset=0, device=self.device)
+        i_indices, j_indices = tril_indices[0], tril_indices[1]
+        
+        # Vectorized computation for lower triangular part only (matches original i >= j)
+        # H[:, :3, i, j] = cross(J_angular[:, :, j], J_linear[:, :, i]) for i >= j
+        J_angular_j = J_angular[:, :, j_indices]  # (N, 3, num_tril_elements)
+        J_linear_i = J_linear[:, :, i_indices]    # (N, 3, num_tril_elements)
+        
+        H_trans_tril = torch.linalg.cross(J_angular_j, J_linear_i, dim=1)  # (N, 3, num_tril_elements)
+        H_rot_tril = torch.linalg.cross(J_angular_j, J_angular[:, :, i_indices], dim=1)  # (N, 3, num_tril_elements)
+        
+        # Assign lower triangular values (including diagonal)
+        H[:, :3, i_indices, j_indices] = H_trans_tril
+        H[:, 3:, i_indices, j_indices] = H_rot_tril
+        
+        # Make the translational part symmetric (copy lower to upper triangular for off-diagonal elements)
+        # H[:, :3, j, i] = H[:, :3, i, j] for i != j (i.e., copy lower to upper)
+        strict_tril_indices = torch.tril_indices(ndof, ndof, offset=-1, device=self.device)
+        H[:, :3, strict_tril_indices[1], strict_tril_indices[0]] = H[:, :3, strict_tril_indices[0], strict_tril_indices[1]]
+        
         return H
 
     def calc_djacobian_dtool(self, th, link_indices=None):
