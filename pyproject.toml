@@ -42,7 +42,7 @@ classifiers = [# Optional
 dependencies = [
     'absl-py',
     'lxml',
-    'numpy<2', # pybullet requires numpy<2 for testing; for future versions this may be relaxed
+    'numpy', # pybullet now supports numpy 2; no longer need numpy<2 - if you run into issues update pybullet
     'pyyaml',
     'torch',
     'matplotlib',
