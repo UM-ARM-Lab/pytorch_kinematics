@@ -18,7 +18,6 @@ def sample_perturbations(
     """
     Sample perturbations around the given transform. The translation and rotation are sampled independently from
     0-mean Gaussians. Rotational perturbations are sampled via axis-angle with random directions unless an axis is given.
-
     Parameters
     ----------
     T : torch.Tensor
@@ -33,7 +32,6 @@ def sample_perturbations(
         If supplied, perturb around this axis (shape (3,) or (N,3)).
     translation_perpendicular_to_axis_of_rotation : bool
         If True, translation perturbations are forced perpendicular to axis_of_rotation.
-
     Returns
     -------
     torch.Tensor
