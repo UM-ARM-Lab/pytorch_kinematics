@@ -1,16 +1,19 @@
-from .xml_reflection.basics import *
+from typing import ClassVar
+
 from . import xml_reflection as xmlr
+from .xml_reflection.basics import node_add, xml_children
+
 
 # What is the scope of plugins? Model, World, Sensor?
 
-xmlr.start_namespace('sdf')
+xmlr.start_namespace("sdf")
 
-name_attribute = xmlr.Attribute('name', str, False)
-pose_element = xmlr.Element('pose', 'vector6', False)
+name_attribute = xmlr.Attribute("name", str, False)
+pose_element = xmlr.Element("pose", "vector6", False)
 
 
 class Inertia(xmlr.Object):
-    KEYS = ['ixx', 'ixy', 'ixz', 'iyy', 'iyz', 'izz']
+    KEYS: ClassVar = ["ixx", "ixy", "ixz", "iyy", "iyz", "izz"]
 
     def __init__(self, ixx=0.0, ixy=0.0, ixz=0.0, iyy=0.0, iyz=0.0, izz=0.0):
         self.ixx = ixx
@@ -24,11 +27,11 @@ class Inertia(xmlr.Object):
         return [
             [self.ixx, self.ixy, self.ixz],
             [self.ixy, self.iyy, self.iyz],
-            [self.ixz, self.iyz, self.izz]]
+            [self.ixz, self.iyz, self.izz],
+        ]
 
 
-xmlr.reflect(Inertia,
-             params=[xmlr.Element(key, float) for key in Inertia.KEYS])
+xmlr.reflect(Inertia, params=[xmlr.Element(key, float) for key in Inertia.KEYS])
 
 
 # Pretty much copy-paste... Better method?
@@ -42,11 +45,14 @@ class Inertial(xmlr.Object):
         self.pose = pose
 
 
-xmlr.reflect(Inertial, params=[
-    xmlr.Element('mass', float),
-    xmlr.Element('inertia', Inertia),
-    pose_element
-])
+xmlr.reflect(
+    Inertial,
+    params=[
+        xmlr.Element("mass", float),
+        xmlr.Element("inertia", Inertia),
+        pose_element,
+    ],
+)
 
 
 class Box(xmlr.Object):
@@ -54,9 +60,7 @@ class Box(xmlr.Object):
         self.size = size
 
 
-xmlr.reflect(Box, tag='box', params=[
-    xmlr.Element('size', 'vector3')
-])
+xmlr.reflect(Box, tag="box", params=[xmlr.Element("size", "vector3")])
 
 
 class Cylinder(xmlr.Object):
@@ -65,10 +69,11 @@ class Cylinder(xmlr.Object):
         self.length = length
 
 
-xmlr.reflect(Cylinder, tag='cylinder', params=[
-    xmlr.Element('radius', float),
-    xmlr.Element('length', float)
-])
+xmlr.reflect(
+    Cylinder,
+    tag="cylinder",
+    params=[xmlr.Element("radius", float), xmlr.Element("length", float)],
+)
 
 
 class Sphere(xmlr.Object):
@@ -76,9 +81,7 @@ class Sphere(xmlr.Object):
         self.radius = radius
 
 
-xmlr.reflect(Sphere, tag='sphere', params=[
-    xmlr.Element('radius', float)
-])
+xmlr.reflect(Sphere, tag="sphere", params=[xmlr.Element("radius", float)])
 
 
 class Mesh(xmlr.Object):
@@ -87,24 +90,26 @@ class Mesh(xmlr.Object):
         self.scale = scale
 
 
-xmlr.reflect(Mesh, tag='mesh', params=[
-    xmlr.Element('filename', str),
-    xmlr.Element('scale', 'vector3', required=False)
-])
+xmlr.reflect(
+    Mesh,
+    tag="mesh",
+    params=[
+        xmlr.Element("filename", str),
+        xmlr.Element("scale", "vector3", required=False),
+    ],
+)
 
 
 class GeometricType(xmlr.ValueType):
     def __init__(self):
-        self.factory = xmlr.FactoryType('geometric', {
-            'box': Box,
-            'cylinder': Cylinder,
-            'sphere': Sphere,
-            'mesh': Mesh
-        })
+        self.factory = xmlr.FactoryType(
+            "geometric",
+            {"box": Box, "cylinder": Cylinder, "sphere": Sphere, "mesh": Mesh},
+        )
 
     def from_xml(self, node, path):
         children = xml_children(node)
-        assert len(children) == 1, 'One element only for geometric'
+        assert len(children) == 1, "One element only for geometric"
         return self.factory.from_xml(children[0], path=path)
 
     def write_xml(self, node, obj):
@@ -113,7 +118,7 @@ class GeometricType(xmlr.ValueType):
         obj.write_xml(child)
 
 
-xmlr.add_type('geometric', GeometricType())
+xmlr.add_type("geometric", GeometricType())
 
 
 class Script(xmlr.Object):
@@ -122,10 +127,11 @@ class Script(xmlr.Object):
         self.name = name
 
 
-xmlr.reflect(Script, tag='script', params=[
-    xmlr.Element('name', str, False),
-    xmlr.Element('uri', str, False)
-])
+xmlr.reflect(
+    Script,
+    tag="script",
+    params=[xmlr.Element("name", str, False), xmlr.Element("uri", str, False)],
+)
 
 
 class Material(xmlr.Object):
@@ -134,10 +140,11 @@ class Material(xmlr.Object):
         self.script = script
 
 
-xmlr.reflect(Material, tag='material', params=[
-    name_attribute,
-    xmlr.Element('script', Script, False)
-])
+xmlr.reflect(
+    Material,
+    tag="material",
+    params=[name_attribute, xmlr.Element("script", Script, False)],
+)
 
 
 class Visual(xmlr.Object):
@@ -147,12 +154,16 @@ class Visual(xmlr.Object):
         self.pose = pose
 
 
-xmlr.reflect(Visual, tag='visual', params=[
-    name_attribute,
-    xmlr.Element('geometry', 'geometric'),
-    xmlr.Element('material', Material, False),
-    pose_element
-])
+xmlr.reflect(
+    Visual,
+    tag="visual",
+    params=[
+        name_attribute,
+        xmlr.Element("geometry", "geometric"),
+        xmlr.Element("material", Material, False),
+        pose_element,
+    ],
+)
 
 
 class Collision(xmlr.Object):
@@ -162,11 +173,11 @@ class Collision(xmlr.Object):
         self.pose = pose
 
 
-xmlr.reflect(Collision, tag='collision', params=[
-    name_attribute,
-    xmlr.Element('geometry', 'geometric'),
-    pose_element
-])
+xmlr.reflect(
+    Collision,
+    tag="collision",
+    params=[name_attribute, xmlr.Element("geometry", "geometric"), pose_element],
+)
 
 
 class Dynamics(xmlr.Object):
@@ -175,10 +186,14 @@ class Dynamics(xmlr.Object):
         self.friction = friction
 
 
-xmlr.reflect(Dynamics, tag='dynamics', params=[
-    xmlr.Element('damping', float, False),
-    xmlr.Element('friction', float, False)
-])
+xmlr.reflect(
+    Dynamics,
+    tag="dynamics",
+    params=[
+        xmlr.Element("damping", float, False),
+        xmlr.Element("friction", float, False),
+    ],
+)
 
 
 class Limit(xmlr.Object):
@@ -187,35 +202,47 @@ class Limit(xmlr.Object):
         self.upper = upper
 
 
-xmlr.reflect(Limit, tag='limit', params=[
-    xmlr.Element('lower', float, False),
-    xmlr.Element('upper', float, False)
-])
+xmlr.reflect(
+    Limit,
+    tag="limit",
+    params=[xmlr.Element("lower", float, False), xmlr.Element("upper", float, False)],
+)
 
 
 class Axis(xmlr.Object):
-    def __init__(self, xyz=None, limit=None, dynamics=None,
-                 use_parent_model_frame=None):
+    def __init__(self, xyz=None, limit=None, dynamics=None, use_parent_model_frame=None):
         self.xyz = xyz
         self.limit = limit
         self.dynamics = dynamics
         self.use_parent_model_frame = use_parent_model_frame
 
 
-xmlr.reflect(Axis, tag='axis', params=[
-    xmlr.Element('xyz', 'vector3'),
-    xmlr.Element('limit', Limit, False),
-    xmlr.Element('dynamics', Dynamics, False),
-    xmlr.Element('use_parent_model_frame', bool, False)
-])
+xmlr.reflect(
+    Axis,
+    tag="axis",
+    params=[
+        xmlr.Element("xyz", "vector3"),
+        xmlr.Element("limit", Limit, False),
+        xmlr.Element("dynamics", Dynamics, False),
+        xmlr.Element("use_parent_model_frame", bool, False),
+    ],
+)
 
 
 class Joint(xmlr.Object):
-    TYPES = ['unknown', 'revolute', 'gearbox', 'revolute2',
-             'prismatic', 'ball', 'screw', 'universal', 'fixed']
+    TYPES: ClassVar = [
+        "unknown",
+        "revolute",
+        "gearbox",
+        "revolute2",
+        "prismatic",
+        "ball",
+        "screw",
+        "universal",
+        "fixed",
+    ]
 
-    def __init__(self, name=None, parent=None, child=None, joint_type=None,
-                 axis=None, pose=None):
+    def __init__(self, name=None, parent=None, child=None, joint_type=None, axis=None, pose=None):
         self.aggregate_init()
         self.name = name
         self.parent = parent
@@ -226,20 +253,26 @@ class Joint(xmlr.Object):
 
     # Aliases
     @property
-    def joint_type(self): return self.type
+    def joint_type(self):
+        return self.type
 
     @joint_type.setter
-    def joint_type(self, value): self.type = value
+    def joint_type(self, value):
+        self.type = value
 
 
-xmlr.reflect(Joint, tag='joint', params=[
-    name_attribute,
-    xmlr.Attribute('type', str, False),
-    xmlr.Element('axis', Axis),
-    xmlr.Element('parent', str),
-    xmlr.Element('child', str),
-    pose_element
-])
+xmlr.reflect(
+    Joint,
+    tag="joint",
+    params=[
+        name_attribute,
+        xmlr.Attribute("type", str, False),
+        xmlr.Element("axis", Axis),
+        xmlr.Element("parent", str),
+        xmlr.Element("child", str),
+        pose_element,
+    ],
+)
 
 
 class Link(xmlr.Object):
@@ -253,14 +286,18 @@ class Link(xmlr.Object):
         self.collisions = []
 
 
-xmlr.reflect(Link, tag='link', params=[
-    name_attribute,
-    xmlr.Element('inertial', Inertial),
-    xmlr.Attribute('kinematic', bool, False),
-    xmlr.AggregateElement('visual', Visual, var='visuals'),
-    xmlr.AggregateElement('collision', Collision, var='collisions'),
-    pose_element
-])
+xmlr.reflect(
+    Link,
+    tag="link",
+    params=[
+        name_attribute,
+        xmlr.Element("inertial", Inertial),
+        xmlr.Attribute("kinematic", bool, False),
+        xmlr.AggregateElement("visual", Visual, var="visuals"),
+        xmlr.AggregateElement("collision", Collision, var="collisions"),
+        pose_element,
+    ],
+)
 
 
 class Model(xmlr.Object):
@@ -279,7 +316,7 @@ class Model(xmlr.Object):
     def add_aggregate(self, typeName, elem):
         xmlr.Object.add_aggregate(self, typeName, elem)
 
-        if typeName == 'joint':
+        if typeName == "joint":
             joint = elem
             self.joint_map[joint.name] = joint
             self.parent_map[joint.child] = (joint.name, joint.parent)
@@ -287,23 +324,27 @@ class Model(xmlr.Object):
                 self.child_map[joint.parent].append((joint.name, joint.child))
             else:
                 self.child_map[joint.parent] = [(joint.name, joint.child)]
-        elif typeName == 'link':
+        elif typeName == "link":
             link = elem
             self.link_map[link.name] = link
 
     def add_link(self, link):
-        self.add_aggregate('link', link)
+        self.add_aggregate("link", link)
 
     def add_joint(self, joint):
-        self.add_aggregate('joint', joint)
+        self.add_aggregate("joint", joint)
 
 
-xmlr.reflect(Model, tag='model', params=[
-    name_attribute,
-    xmlr.AggregateElement('link', Link, var='links'),
-    xmlr.AggregateElement('joint', Joint, var='joints'),
-    pose_element
-])
+xmlr.reflect(
+    Model,
+    tag="model",
+    params=[
+        name_attribute,
+        xmlr.AggregateElement("link", Link, var="links"),
+        xmlr.AggregateElement("joint", Joint, var="joints"),
+        pose_element,
+    ],
+)
 
 
 class SDF(xmlr.Object):
@@ -311,9 +352,13 @@ class SDF(xmlr.Object):
         self.version = version
 
 
-xmlr.reflect(SDF, tag='sdf', params=[
-    xmlr.Attribute('version', str, False),
-    xmlr.Element('model', Model, False),
-])
+xmlr.reflect(
+    SDF,
+    tag="sdf",
+    params=[
+        xmlr.Attribute("version", str, False),
+        xmlr.Element("model", Model, False),
+    ],
+)
 
 xmlr.end_namespace()

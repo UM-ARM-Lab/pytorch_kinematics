@@ -1,24 +1,33 @@
-from .urdf_parser_py.urdf import URDF, Mesh, Cylinder, Box, Sphere
-from . import frame
-from . import chain
+from typing import Any, Dict, List, Optional, Sequence
+
 import torch
+
 import pytorch_kinematics.transforms as tf
 
-JOINT_TYPE_MAP = {'revolute':   'revolute',
-                  'continuous': 'revolute',
-                  'prismatic':  'prismatic',
-                  'fixed':      'fixed'}
+from . import chain, frame
+from .urdf_parser_py.urdf import URDF, Box, Cylinder, Mesh, Sphere
 
 
-def _convert_transform(origin):
+JOINT_TYPE_MAP: Dict[str, str] = {
+    "revolute": "revolute",
+    "continuous": "revolute",
+    "prismatic": "prismatic",
+    "fixed": "fixed",
+}
+
+
+def _convert_transform(origin: Optional[Any]) -> tf.Transform3d:
     if origin is None:
         return tf.Transform3d()
     else:
         rpy = torch.tensor(origin.rpy, dtype=torch.float32, device="cpu")
-        return tf.Transform3d(rot=tf.quaternion_from_euler(rpy, "sxyz"), pos=origin.xyz)
+        return tf.Transform3d(
+            rot=tf.quaternion_from_euler(rpy, "sxyz"),
+            pos=origin.xyz,
+        )
 
 
-def _convert_visual(visual):
+def _convert_visual(visual: Optional[Any]) -> frame.Visual:
     if visual is None or visual.geometry is None:
         return frame.Visual()
     else:
@@ -41,8 +50,12 @@ def _convert_visual(visual):
         return frame.Visual(v_tf, g_type, g_param)
 
 
-def _build_chain_recurse(root_frame, lmap, joints):
-    children = []
+def _build_chain_recurse(
+    root_frame: frame.Frame,
+    lmap: Dict[str, Any],
+    joints: Sequence[Any],
+) -> List[frame.Frame]:
+    children: List[frame.Frame] = []
     for j in joints:
         if j.parent == root_frame.link.name:
             try:
@@ -58,19 +71,30 @@ def _build_chain_recurse(root_frame, lmap, joints):
                 effort_limits = (-j.limit.effort, j.limit.effort)
             except AttributeError:
                 effort_limits = None
+
             child_frame = frame.Frame(j.child)
-            child_frame.joint = frame.Joint(j.name, offset=_convert_transform(j.origin),
-                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits,
-                                            velocity_limits=velocity_limits, effort_limits=effort_limits)
+            child_frame.joint = frame.Joint(
+                j.name,
+                offset=_convert_transform(j.origin),
+                joint_type=JOINT_TYPE_MAP[j.type],
+                axis=j.axis,
+                limits=limits,
+                velocity_limits=velocity_limits,
+                effort_limits=effort_limits,
+            )
+
             link = lmap[j.child]
-            child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
-                                          visuals=[_convert_visual(link.visual)])
+            child_frame.link = frame.Link(
+                link.name,
+                offset=_convert_transform(link.origin),
+                visuals=[_convert_visual(link.visual)],
+            )
             child_frame.children = _build_chain_recurse(child_frame, lmap, joints)
             children.append(child_frame)
     return children
 
 
-def build_chain_from_urdf(data):
+def build_chain_from_urdf(data: str) -> chain.Chain:
     """
     Build a Chain object from URDF data.
 
@@ -98,14 +122,14 @@ def build_chain_from_urdf(data):
     >>> chain = pk.build_chain_from_urdf(data)
     >>> print(chain)
     link1_frame
-     	link2_frame
+        link2_frame
 
     """
-    robot = URDF.from_xml_string(data)
-    lmap = robot.link_map
-    joints = robot.joints
+    robot: URDF = URDF.from_xml_string(data)
+    lmap: Dict[str, Any] = robot.link_map
+    joints: Sequence[Any] = robot.joints
     n_joints = len(joints)
-    has_root = [True for _ in range(len(joints))]
+    has_root: List[bool] = [True for _ in range(len(joints))]
     for i in range(n_joints):
         for j in range(i + 1, n_joints):
             if joints[i].parent == joints[j].child:
@@ -116,17 +140,28 @@ def build_chain_from_urdf(data):
         if has_root[i]:
             root_link = lmap[joints[i].parent]
             break
+    else:
+        # Fallback (should rarely happen)
+        root_link = lmap[joints[0].parent]
+
     root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint()
-    root_frame.link = frame.Link(root_link.name, _convert_transform(root_link.origin),
-                                 [_convert_visual(root_link.visual)])
+    root_frame.link = frame.Link(
+        root_link.name,
+        _convert_transform(root_link.origin),
+        [_convert_visual(root_link.visual)],
+    )
     root_frame.children = _build_chain_recurse(root_frame, lmap, joints)
     return chain.Chain(root_frame)
 
 
-def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
+def build_serial_chain_from_urdf(
+    data: str,
+    end_link_name: str,
+    root_link_name: str = "",
+) -> chain.SerialChain:
     """
-    Build a SerialChain object from urdf data.
+    Build a SerialChain object from URDF data.
 
     Parameters
     ----------
@@ -143,4 +178,4 @@ def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
         SerialChain object created from URDF.
     """
     urdf_chain = build_chain_from_urdf(data)
-    return chain.SerialChain(urdf_chain, end_link_name, root_link_name or '')
+    return chain.SerialChain(urdf_chain, end_link_name, root_link_name or "")

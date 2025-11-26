@@ -2,7 +2,9 @@ import os
 
 import pytorch_kinematics as pk
 
+
 TEST_DIR = os.path.dirname(__file__)
+
 
 def test_limits():
     chain = pk.build_serial_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
@@ -35,7 +37,7 @@ def test_limits():
     assert low == [x + 8 for x in nums]
     assert high == [x + 9 for x in nums]
     assert v_low == [-x for x in nums]
-    assert v_high == [x for x in nums]
+    assert v_high == list(nums)
     assert e_low == [-(x + 4) for x in nums]
     assert e_high == [x + 4 for x in nums]
 
@@ -60,7 +62,7 @@ def test_empty_limits():
     assert low == [0] * len(nums)
     assert high == [0] * len(nums)
     assert v_low == [-x for x in nums]
-    assert v_high == [x for x in nums]
+    assert v_high == list(nums)
     assert e_low == [-(x + 4) for x in nums]
     assert e_high == [x + 4 for x in nums]
 

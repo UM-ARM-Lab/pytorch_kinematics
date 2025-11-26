@@ -18,12 +18,12 @@
     </visual>
 
     <asset>
-        <texture type="skybox" builtin="gradient" width="100" height="100" rgb1=".4 .6 .8" 
-            rgb2="0 0 0"/>  
-        <texture name="texgeom" type="cube" builtin="flat" mark="cross" width="127" height="1278" 
-            rgb1="0.8 0.6 0.4" rgb2="0.8 0.6 0.4" markrgb="1 1 1" random="0.01"/>  
-        <texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" 
-            width="100" height="100"/>  
+        <texture type="skybox" builtin="gradient" width="100" height="100" rgb1=".4 .6 .8"
+            rgb2="0 0 0"/>
+        <texture name="texgeom" type="cube" builtin="flat" mark="cross" width="127" height="1278"
+            rgb1="0.8 0.6 0.4" rgb2="0.8 0.6 0.4" markrgb="1 1 1" random="0.01"/>
+        <texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2"
+            width="100" height="100"/>
 
         <material name='MatPlane' reflectance='0.5' texture="texplane" texrepeat="1 1" texuniform="true"/>
         <material name='geom' texture="texgeom" texuniform="true"/>
@@ -35,7 +35,7 @@
         <body name='torso' pos='0 0 1.4'>
             <light mode='trackcom' directional='false' diffuse='.8 .8 .8' specular='0.3 0.3 0.3' pos='0 0 4.0' dir='0 0 -1'/>
 
-            
+
             <geom name='torso1' type='capsule' fromto='0 -.07 0 0 .07 0'  size='0.07' />
             <geom name='head' type='sphere' pos='0 0 .19' size='.09'/>
             <geom name='uwaist' type='capsule' fromto='-.01 -.06 -.12 -.01 .06 -.12' size='0.06'/>

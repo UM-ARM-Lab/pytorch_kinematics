@@ -1,10 +1,10 @@
 """ Generate performance data for multiple models, devices, data types, batch sizes, etc. """
 import timeit
-from time import perf_counter
+
+import numpy as np
 import torch
 
 import pytorch_kinematics as pk
-import numpy as np
 
 
 def main():
@@ -12,18 +12,18 @@ def main():
     torch.set_printoptions(precision=3, sci_mode=False, linewidth=220)
 
     chains = {
-        'val':        pk.build_chain_from_mjcf(open('val.xml').read()),
-        'val_serial': pk.build_serial_chain_from_mjcf(open('val.xml').read(), end_link_name='left_tool'),
-        'kuka_iiwa':  pk.build_serial_chain_from_urdf(open('kuka_iiwa.urdf').read(), end_link_name='lbr_iiwa_link_7'),
+        "val": pk.build_chain_from_mjcf(open("val.xml").read()),
+        "val_serial": pk.build_serial_chain_from_mjcf(open("val.xml").read(), end_link_name="left_tool"),
+        "kuka_iiwa": pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), end_link_name="lbr_iiwa_link_7"),
     }
 
-    devices = ['cpu', 'cuda']
+    devices = ["cpu", "cuda"]
     dtypes = [torch.float32, torch.float64]
     batch_sizes = [1, 10, 100, 1_000, 10_000, 100_000]
     number = 100
 
     # iterate over all combinations and store in a pandas dataframe
-    headers = ['method', 'chain', 'device', 'dtype', 'batch_size', 'time']
+    headers = ["method", "chain", "device", "dtype", "batch_size", "time"]
     data = []
 
     def _fk(th):
@@ -42,9 +42,10 @@ def main():
 
     # pickle the data for visualization in jupyter notebook
     import pickle
-    with open('fk_perf.pkl', 'wb') as f:
+
+    with open("fk_perf.pkl", "wb") as f:
         pickle.dump([headers, data], f)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

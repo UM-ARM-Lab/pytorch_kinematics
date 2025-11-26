@@ -1,6 +1,15 @@
-from .basics import *
-import sys
 import copy
+import sys
+from typing import Any, Callable, Dict, List, Optional, Type
+
+from lxml import etree
+
+from .basics import (
+    YamlReflection,
+    node_add,
+    xml_children,
+    xml_string,
+)
 
 
 # @todo Get rid of "import *"
@@ -10,12 +19,12 @@ import copy
 # Rename?
 
 # Do parent operations after, to allow child to 'override' parameters?
-# Need to make sure that duplicate entires do not get into the 'unset*' lists
+# Need to make sure that duplicate entries do not get into the 'unset*' lists
 
 
 def reflect(cls, *args, **kwargs):
     """
-    Simple wrapper to add XML reflection to an xml_reflection.Object class
+    Simple wrapper to add XML reflection to an xml_reflection.Object class.
     """
     cls.XML_REFL = Reflection(*args, **kwargs)
 
@@ -24,49 +33,50 @@ def reflect(cls, *args, **kwargs):
 # 'pre_dump' and 'post_load'?
 # When dumping to yaml, include tag name?
 
+
 # How to incorporate line number and all that jazz?
 def on_error_stderr(message):
-    """ What to do on an error. This can be changed to raise an exception. """
-    sys.stderr.write(message + '\n')
+    """What to do on an error. This can be changed to raise an exception."""
+    sys.stderr.write(message + "\n")
 
 
-on_error = on_error_stderr
+on_error: Callable[[str], None] = on_error_stderr
 
-skip_default = False
-# defaultIfMatching = True # Not implemeneted yet
+skip_default: bool = False
+# defaultIfMatching = True # Not implemented yet
 
 # Registering Types
-value_types = {}
-value_type_prefix = ''
+value_types: Dict[Any, "ValueType"] = {}
+value_type_prefix: str = ""
 
 
-def start_namespace(namespace):
+def start_namespace(namespace: str) -> None:
     """
     Basic mechanism to prevent conflicts for string types for URDF and SDF
     @note Does not handle nesting!
     """
     global value_type_prefix
-    value_type_prefix = namespace + '.'
+    value_type_prefix = namespace + "."
 
 
-def end_namespace():
+def end_namespace() -> None:
     global value_type_prefix
-    value_type_prefix = ''
+    value_type_prefix = ""
 
 
-def add_type(key, value):
+def add_type(key: Any, value: "ValueType") -> None:
     if isinstance(key, str):
         key = value_type_prefix + key
     assert key not in value_types
     value_types[key] = value
 
 
-def get_type(cur_type):
-    """ Can wrap value types if needed """
+def get_type(cur_type: Any) -> "ValueType":
+    """Can wrap value types if needed"""
     if value_type_prefix and isinstance(cur_type, str):
         # See if it exists in current 'namespace'
-        curKey = value_type_prefix + cur_type
-        value_type = value_types.get(curKey)
+        cur_key = value_type_prefix + cur_type
+        value_type = value_types.get(cur_key)
     else:
         value_type = None
     if value_type is None:
@@ -78,19 +88,16 @@ def get_type(cur_type):
     return value_type
 
 
-def make_type(cur_type):
+def make_type(cur_type: Any) -> "ValueType":
     if isinstance(cur_type, ValueType):
         return cur_type
     elif isinstance(cur_type, str):
-        if cur_type.startswith('vector'):
+        if cur_type.startswith("vector"):
             extra = cur_type[6:]
-            if extra:
-                count = float(extra)
-            else:
-                count = None
+            count: Optional[float] = float(extra) if extra else None
             return VectorType(count)
         else:
-            raise Exception("Invalid value type: {}".format(cur_type))
+            raise Exception(f"Invalid value type: {cur_type}")
     elif cur_type == list:
         return ListType()
     elif issubclass(cur_type, Object):
@@ -98,10 +105,10 @@ def make_type(cur_type):
     elif cur_type in [str, float, bool]:
         return BasicType(cur_type)
     else:
-        raise Exception("Invalid type: {}".format(cur_type))
+        raise Exception(f"Invalid type: {cur_type}")
 
 
-class Path(object):
+class Path:
     def __init__(self, tag, parent=None, suffix="", tree=None):
         self.parent = parent
         self.tag = tag
@@ -110,24 +117,23 @@ class Path(object):
 
     def __str__(self):
         if self.parent is not None:
-            return "{}/{}{}".format(self.parent, self.tag, self.suffix)
+            return f"{self.parent}/{self.tag}{self.suffix}"
+        elif self.tag is not None and len(self.tag) > 0:
+            return f"/{self.tag}{self.suffix}"
         else:
-            if self.tag is not None and len(self.tag) > 0:
-                return "/{}{}".format(self.tag, self.suffix)
-            else:
-                return self.suffix
+            return self.suffix
 
 
 class ParseError(Exception):
     def __init__(self, e, path):
         self.e = e
         self.path = path
-        message = "ParseError in {}:\n{}".format(self.path, self.e)
-        super(ParseError, self).__init__(message)
+        message = f"ParseError in {self.path}:\n{self.e}"
+        super().__init__(message)
 
 
-class ValueType(object):
-    """ Primitive value type """
+class ValueType:
+    """Primitive value type"""
 
     def from_xml(self, node, path):
         return self.from_string(node.text)
@@ -158,13 +164,13 @@ class BasicType(ValueType):
 
 class ListType(ValueType):
     def to_string(self, values):
-        return ' '.join(values)
+        return " ".join(values)
 
     def from_string(self, text):
         return text.split()
 
     def equals(self, aValues, bValues):
-        return len(aValues) == len(bValues) and all(a == b for (a, b) in zip(aValues, bValues))  # noqa
+        return len(aValues) == len(bValues) and all(a == b for (a, b) in zip(aValues, bValues))
 
 
 class VectorType(ListType):
@@ -200,7 +206,7 @@ class RawType(ValueType):
         children = xml_children(value)
         list(map(node.append, children))
         # Copy attributes
-        for (attrib_key, attrib_value) in value.attrib.items():
+        for attrib_key, attrib_value in value.attrib.items():
             node.set(attrib_key, attrib_value)
 
 
@@ -241,14 +247,14 @@ class FactoryType(ValueType):
         self.name = name
         self.typeMap = typeMap
         self.nameMap = {}
-        for (key, value) in typeMap.items():
+        for key, value in typeMap.items():
             # Reverse lookup
             self.nameMap[value] = key
 
     def from_xml(self, node, path):
         cur_type = self.typeMap.get(node.tag)
         if cur_type is None:
-            raise Exception("Invalid {} tag: {}".format(self.name, node.tag))
+            raise Exception(f"Invalid {self.name} tag: {node.tag}")
         value_type = get_type(cur_type)
         return value_type.from_xml(node, path)
 
@@ -256,7 +262,7 @@ class FactoryType(ValueType):
         cur_type = type(obj)
         name = self.nameMap.get(cur_type)
         if name is None:
-            raise Exception("Invalid {} type: {}".format(self.name, cur_type))
+            raise Exception(f"Invalid {self.name} type: {cur_type}")
         return name
 
     def write_xml(self, node, obj):
@@ -278,16 +284,16 @@ class DuckTypedFactory(ValueType):
                 error_set.append((value_type, e))
         # Should have returned, we encountered errors
         out = "Could not perform duck-typed parsing."
-        for (value_type, e) in error_set:
-            out += "\nValue Type: {}\nException: {}\n".format(value_type, e)
+        for value_type, e in error_set:
+            out += f"\nValue Type: {value_type}\nException: {e}\n"
             raise ParseError(Exception(out), path)
 
     def write_xml(self, node, obj):
         obj.write_xml(node)
 
 
-class Param(object):
-    """ Mirroring Gazebo's SDF api
+class Param:
+    """Mirroring Gazebo's SDF api
 
     @param xml_var: Xml name
             @todo If the value_type is an object with a tag defined in it's
@@ -296,8 +302,7 @@ class Param(object):
                 XML name
     """
 
-    def __init__(self, xml_var, value_type, required=True, default=None,
-                 var=None):
+    def __init__(self, xml_var, value_type, required=True, default=None, var=None):
         self.xml_var = xml_var
         if var is None:
             self.var = xml_var
@@ -307,25 +312,24 @@ class Param(object):
         self.value_type = get_type(value_type)
         self.default = default
         if required:
-            assert default is None, "Default does not make sense for a required field"  # noqa
+            assert default is None, "Default does not make sense for a required field"
         self.required = required
         self.is_aggregate = False
 
     def set_default(self, obj):
         if self.required:
-            raise Exception("Required {} not set in XML: {}".format(self.type, self.xml_var))  # noqa
+            raise Exception(f"Required {self.type} not set in XML: {self.xml_var}")
         elif not skip_default:
             setattr(obj, self.var, self.default)
 
 
 class Attribute(Param):
-    def __init__(self, xml_var, value_type, required=True, default=None,
-                 var=None):
+    def __init__(self, xml_var, value_type, required=True, default=None, var=None):
         Param.__init__(self, xml_var, value_type, required, default, var)
-        self.type = 'attribute'
+        self.type = "attribute"
 
     def set_from_string(self, obj, value):
-        """ Node is the parent node in this case """
+        """Node is the parent node in this case"""
         # Duplicate attributes cannot occur at this point
         setattr(obj, self.var, self.value_type.from_string(value))
 
@@ -337,7 +341,7 @@ class Attribute(Param):
         # Do not set with default value if value is None
         if value is None:
             if self.required:
-                raise Exception("Required attribute not set in object: {}".format(self.var))  # noqa
+                raise Exception(f"Required attribute not set in object: {self.var}")
             elif not skip_default:
                 value = self.default
         # Allow value type to handle None?
@@ -351,10 +355,9 @@ class Attribute(Param):
 
 
 class Element(Param):
-    def __init__(self, xml_var, value_type, required=True, default=None,
-                 var=None, is_raw=False):
+    def __init__(self, xml_var, value_type, required=True, default=None, var=None, is_raw=False):
         Param.__init__(self, xml_var, value_type, required, default, var)
-        self.type = 'element'
+        self.type = "element"
         self.is_raw = is_raw
 
     def set_from_xml(self, obj, node, path):
@@ -365,26 +368,22 @@ class Element(Param):
         value = getattr(obj, self.xml_var)
         if value is None:
             if self.required:
-                raise Exception("Required element not defined in object: {}".format(self.var))  # noqa
+                raise Exception(f"Required element not defined in object: {self.var}")
             elif not skip_default:
                 value = self.default
         if value is not None:
             self.add_scalar_to_xml(parent, value)
 
     def add_scalar_to_xml(self, parent, value):
-        if self.is_raw:
-            node = parent
-        else:
-            node = node_add(parent, self.xml_var)
+        node = parent if self.is_raw else node_add(parent, self.xml_var)
         self.value_type.write_xml(node, value)
 
 
 class AggregateElement(Element):
     def __init__(self, xml_var, value_type, var=None, is_raw=False):
         if var is None:
-            var = xml_var + 's'
-        Element.__init__(self, xml_var, value_type, required=False, var=var,
-                         is_raw=is_raw)
+            var = xml_var + "s"
+        Element.__init__(self, xml_var, value_type, required=False, var=var, is_raw=is_raw)
         self.is_aggregate = True
 
     def add_from_xml(self, obj, node, path):
@@ -396,21 +395,23 @@ class AggregateElement(Element):
 
 
 class Info:
-    """ Small container for keeping track of what's been consumed """
+    """Small container for keeping track of what's been consumed"""
 
     def __init__(self, node):
         self.attributes = list(node.attrib.keys())
         self.children = xml_children(node)
 
 
-class Reflection(object):
-    def __init__(self, params=[], parent_cls=None, tag=None):
-        """ Construct a XML reflection thing
+class Reflection:
+    def __init__(self, params=None, parent_cls=None, tag=None):
+        """Construct a XML reflection thing
         @param parent_cls: Parent class, to use it's reflection as well.
         @param tag: Only necessary if you intend to use Object.write_xml_doc()
                 This does not override the name supplied in the reflection
                 definition thing.
         """
+        if params is None:
+            params = []
         if parent_cls is not None:
             self.parent = parent_cls.XML_REFL
         else:
@@ -472,16 +473,16 @@ class Reflection(object):
 
         def get_attr_path(attribute):
             attr_path = copy.copy(path)
-            attr_path.suffix += '[@{}]'.format(attribute.xml_var)
+            attr_path.suffix += f"[@{attribute.xml_var}]"
             return attr_path
 
         def get_element_path(element):
             element_path = Path(element.xml_var, parent=path)
-            # Add an index (allow this to be overriden)
+            # Add an index (allow this to be overridden)
             if element.is_aggregate:
                 values = obj.get_aggregate_list(element.xml_var)
                 index = 1 + len(values)  # 1-based indexing for W3C XPath
-                element_path.suffix = "[{}]".format(index)
+                element_path.suffix = f"[{index}]"
             return element_path
 
         id_var = "name"
@@ -495,7 +496,7 @@ class Reflection(object):
                     attribute.set_from_string(obj, value)
                     if attribute.xml_var == id_var:
                         # Add id_var suffix to current path (do not copy so it propagates)
-                        path.suffix = "[@{}='{}']".format(id_var, attribute.get_value(obj))
+                        path.suffix = f"[@{id_var}='{attribute.get_value(obj)}']"
                 except ParseError:
                     raise
                 except Exception as e:
@@ -512,12 +513,11 @@ class Reflection(object):
                 element_path = get_element_path(element)
                 if element.is_aggregate:
                     element.add_from_xml(obj, child, element_path)
+                elif tag in unset_scalars:
+                    element.set_from_xml(obj, child, element_path)
+                    unset_scalars.remove(tag)
                 else:
-                    if tag in unset_scalars:
-                        element.set_from_xml(obj, child, element_path)
-                        unset_scalars.remove(tag)
-                    else:
-                        on_error("Scalar element defined multiple times: {}".format(tag))  # noqa
+                    on_error(f"Scalar element defined multiple times: {tag}")
                 info.children.remove(child)
 
         # For unset attributes and scalar elements, we should not pass the attribute
@@ -542,9 +542,9 @@ class Reflection(object):
 
         if is_final:
             for xml_var in info.attributes:
-                on_error('Unknown attribute "{}" in {}'.format(xml_var, path))
+                on_error(f'Unknown attribute "{xml_var}" in {path}')
             for node in info.children:
-                on_error('Unknown tag "{}" in {}'.format(node.tag, path))
+                on_error(f'Unknown tag "{node.tag}" in {path}')
         # Allow children parsers to adopt this current path (if modified with id_var)
         return path
 
@@ -561,7 +561,8 @@ class Reflection(object):
 
 
 class Object(YamlReflection):
-    """ Raw python object for yaml / xml representation """
+    """Raw python object for yaml / xml representation"""
+
     XML_REFL = None
 
     def get_refl_vars(self):
@@ -571,20 +572,19 @@ class Object(YamlReflection):
         pass
 
     def pre_write_xml(self):
-        """ If anything needs to be converted prior to dumping to xml
-        i.e., getting the names of objects and such """
-        pass
+        """If anything needs to be converted prior to dumping to xml
+        i.e., getting the names of objects and such"""
 
     def write_xml(self, node):
-        """ Adds contents directly to XML node """
+        """Adds contents directly to XML node"""
         self.check_valid()
         self.pre_write_xml()
         self.XML_REFL.add_to_xml(self, node)
 
     def to_xml(self):
-        """ Creates an overarching tag and adds its contents to the node """
+        """Creates an overarching tag and adds its contents to the node"""
         tag = self.XML_REFL.tag
-        assert tag is not None, "Must define 'tag' in reflection to use this function"  # noqa
+        assert tag is not None, "Must define 'tag' in reflection to use this function"
         doc = etree.Element(tag)
         self.write_xml(doc)
         return doc
@@ -606,66 +606,58 @@ class Object(YamlReflection):
             raise ParseError(e, path)
 
     @classmethod
-    def from_xml(cls, node, path):
+    def from_xml(cls: Type["Object"], node: etree._Element, path: Path) -> "Object":
         cur_type = get_type(cls)
         return cur_type.from_xml(node, path)
 
     @classmethod
-    def from_xml_string(cls, xml_string):
-        node = etree.fromstring(xml_string)
+    def from_xml_string(cls: Type["Object"], xml_str: str) -> "Object":
+        node = etree.fromstring(xml_str)
         path = Path(cls.XML_REFL.tag, tree=etree.ElementTree(node))
         return cls.from_xml(node, path)
 
     @classmethod
-    def from_xml_file(cls, file_path):
-        xml_string = open(file_path, 'r').read()
-        return cls.from_xml_string(xml_string)
+    def from_xml_file(cls: Type["Object"], file_path: str) -> "Object":
+        with open(file_path) as fp:
+            return cls.from_xml_string(fp.read())
 
-    # Confusing distinction between loading code in object and reflection
-    # registry thing...
-
-    def get_aggregate_list(self, xml_var):
+    def get_aggregate_list(self, xml_var: str) -> List[Any]:
         var = self.XML_REFL.paramMap[xml_var].var
         values = getattr(self, var)
         assert isinstance(values, list)
         return values
 
-    def aggregate_init(self):
-        """ Must be called in constructor! """
-        self.aggregate_order = []
-        # Store this info in the loaded object??? Nah
-        self.aggregate_type = {}
+    def aggregate_init(self) -> None:
+        """Must be called in constructor!"""
+        self.aggregate_order: List[Any] = []
+        self.aggregate_type: Dict[Any, str] = {}
 
-    def add_aggregate(self, xml_var, obj):
-        """ NOTE: One must keep careful track of aggregate types for this system.
-        Can use 'lump_aggregates()' before writing if you don't care. """
+    def add_aggregate(self, xml_var: str, obj: Any) -> None:
         self.get_aggregate_list(xml_var).append(obj)
         self.aggregate_order.append(obj)
         self.aggregate_type[obj] = xml_var
 
-    def add_aggregates_to_xml(self, node):
+    def add_aggregates_to_xml(self, node: etree._Element) -> None:
         for value in self.aggregate_order:
             typeName = self.aggregate_type[value]
             element = self.XML_REFL.element_map[typeName]
             element.add_scalar_to_xml(node, value)
 
-    def remove_aggregate(self, obj):
+    def remove_aggregate(self, obj: Any) -> None:
         self.aggregate_order.remove(obj)
         xml_var = self.aggregate_type[obj]
         del self.aggregate_type[obj]
         self.get_aggregate_list(xml_var).remove(obj)
 
-    def lump_aggregates(self):
-        """ Put all aggregate types together, just because """
+    def lump_aggregates(self) -> None:
+        """Put all aggregate types together, just because."""
         self.aggregate_init()
         for param in self.XML_REFL.aggregates:
             for obj in self.get_aggregate_list(param.xml_var):
                 self.add_aggregate(param.var, obj)
 
-    """ Compatibility """
-
-    def parse(self, xml_string):
-        node = etree.fromstring(xml_string)
+    def parse(self, xml_str: str) -> "Object":
+        node = etree.fromstring(xml_str)
         path = Path(self.XML_REFL.tag, tree=etree.ElementTree(node))
         self.read_xml(node, path)
         return self
@@ -673,10 +665,10 @@ class Object(YamlReflection):
 
 # Really common types
 # Better name: element_with_name? Attributed element?
-add_type('element_name', SimpleElementType('name', str))
-add_type('element_value', SimpleElementType('value', float))
+add_type("element_name", SimpleElementType("name", str))
+add_type("element_value", SimpleElementType("value", float))
 
 # Add in common vector types so they aren't absorbed into the namespaces
-get_type('vector3')
-get_type('vector4')
-get_type('vector6')
+get_type("vector3")
+get_type("vector4")
+get_type("vector6")

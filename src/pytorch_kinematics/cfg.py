@@ -1,4 +1,5 @@
-import os
+from pathlib import Path
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-TEST_DIR = os.path.join(ROOT_DIR, 'tests')
+
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+TEST_DIR = ROOT_DIR / "tests"

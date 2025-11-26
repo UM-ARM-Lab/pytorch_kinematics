@@ -77,3 +77,77 @@ test = [
 # They will be installed as dependencies during the build, which can take a while the first time.
 requires = ["setuptools>=60.0.0", "wheel"]
 build-backend= "setuptools.build_meta"
+
+
+[tool.ruff]
+src = ["src", "tests",]
+show-fixes = true
+# Same as Black.
+line-length = 127
+# Assume Python 3.8.
+target-version = "py38"
+
+[tool.ruff.lint]
+extend-select = ["C4", "SIM", "TCH"]
+
+ignore = [
+    "A001", "A002",
+    "ARG001", "ARG002",
+    "B007", "B008", "B019", "B023", "B028", "B904", "B026",
+    "E501", "ERA001", "E741", "E722",
+    "FBT001", "FBT002", "FBT003",
+    "N802", "N803", "N806", "N812",
+    "PGH003", "PGH004", "PLR2004",
+    "S101", "S202", "S301", "S310", "S311", "S320",
+    "UP006",
+	"T201", "T203"
+]
+
+select = [
+    "A",
+    "ARG",
+    "B",
+    "C4",
+    "C90",
+    "E",
+    "ERA",
+    "F",
+    "FBT",
+    "ICN",
+    "I",
+    "ISC",
+    "N",
+    "NPY",
+    "PD",
+    "PGH",
+    "PIE",
+    "PLE",
+    "PLR",
+    "Q",
+    "RUF",
+    "S",
+    "SIM",
+    "T",
+    "UP",
+    "W",
+]
+
+[tool.ruff.lint.mccabe]
+# Unlike Flake8, default to a complexity level of 10.
+max-complexity = 30
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+extra-standard-library = ["typing_extensions"]
+
+[tool.ruff.lint.pylint]
+max-statements = 100
+max-branches=25
+max-args=20
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["PLR2004", "N802", "N801", "SIM115", "E501", "ERA001"]
+
+
+[tool.black]
+line-length = 127

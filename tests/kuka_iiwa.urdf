@@ -48,7 +48,7 @@
     <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
   </material>
   <material name="Blue">
-  <color rgba="0.5 0.7 1.0 1.0"/>      
+  <color rgba="0.5 0.7 1.0 1.0"/>
 </material>
 
   <!--Import the lbr iiwa macro -->
@@ -284,6 +284,5 @@
       </geometry>
     </collision>
   </link>
-  
-</robot>
 
+</robot>

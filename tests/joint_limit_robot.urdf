@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <robot name="joint_limit_robot">
-    <!-- 
+    <!--
         This robot is designed just to test that the velocity and effort limits
         are captured properly. It consists of revolute, prismatic, and fixed
         joints, is not a serial chain, and algorithmically defines joint,
