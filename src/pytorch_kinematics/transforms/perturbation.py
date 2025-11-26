@@ -1,26 +1,47 @@
+from typing import Optional
+
 import torch
-from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_33
+
+from pytorch_kinematics.transforms.rotation_conversions import (
+    axis_and_angle_to_matrix_33,
+)
 
 
-def sample_perturbations(T, num_perturbations, radian_sigma, translation_sigma, axis_of_rotation=None,
-                         translation_perpendicular_to_axis_of_rotation=True):
+def sample_perturbations(
+    T: torch.Tensor,
+    num_perturbations: int,
+    radian_sigma: float,
+    translation_sigma: float,
+    axis_of_rotation: Optional[torch.Tensor] = None,
+    translation_perpendicular_to_axis_of_rotation: bool = True,
+) -> torch.Tensor:
     """
     Sample perturbations around the given transform. The translation and rotation are sampled independently from
-    0 mean gaussians. The angular perturbations' directions are uniformly sampled from the unit sphere while its
-    magnitude is sampled from a gaussian.
-    :param T: given transform to perturb around
-    :param num_perturbations: number of perturbations to sample
-    :param radian_sigma: standard deviation of the gaussian angular perturbation in radians
-    :param translation_sigma: standard deviation of the gaussian translation perturbation in meters / T units
-    :param axis_of_rotation: if not None, the axis of rotation to sample the perturbations around
-    :param translation_perpendicular_to_axis_of_rotation: if True and the axis_of_rotation is not None, the translation
-    perturbations will be perpendicular to the axis of rotation
-    :return: perturbed transforms; may not include the original transform
+    0-mean Gaussians. Rotational perturbations are sampled via axis-angle with random directions unless an axis is given.
+    Parameters
+    ----------
+    T : torch.Tensor
+        Input transform of shape (..., 4, 4). Only the last two dims are used.
+    num_perturbations : int
+        Number of perturbations to sample.
+    radian_sigma : float
+        Stddev of Gaussian angular perturbation (radians).
+    translation_sigma : float
+        Stddev of Gaussian translation perturbation (meters).
+    axis_of_rotation : torch.Tensor, optional
+        If supplied, perturb around this axis (shape (3,) or (N,3)).
+    translation_perpendicular_to_axis_of_rotation : bool
+        If True, translation perturbations are forced perpendicular to axis_of_rotation.
+    Returns
+    -------
+    torch.Tensor
+        Perturbed transforms of shape (num_perturbations, 4, 4).
     """
     dtype = T.dtype
     device = T.device
     perturbed = torch.eye(4, dtype=dtype, device=device).repeat(num_perturbations, 1, 1)
 
+    # Gaussian translation perturbations
     delta_t = torch.randn((num_perturbations, 3), dtype=dtype, device=device) * translation_sigma
     # consider sampling from the Bingham distribution
     theta = torch.randn(num_perturbations, dtype=dtype, device=device) * radian_sigma

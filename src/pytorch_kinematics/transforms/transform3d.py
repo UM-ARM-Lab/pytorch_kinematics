@@ -3,14 +3,20 @@
 import math
 import typing
 import warnings
-from typing import Optional
+from typing import Any, Iterable, Optional, Union
 
 import torch
-
-from .rotation_conversions import _axis_angle_rotation, matrix_to_quaternion, quaternion_to_matrix, \
-    euler_angles_to_matrix
-from pytorch_kinematics.transforms.perturbation import sample_perturbations
 from arm_pytorch_utilities import linalg
+
+from pytorch_kinematics.transforms.perturbation import sample_perturbations
+
+from .rotation_conversions import (
+    _axis_angle_rotation,
+    euler_angles_to_matrix,
+    matrix_to_quaternion,
+    quaternion_to_matrix,
+)
+
 
 DEFAULT_EULER_CONVENTION = "XYZ"
 
@@ -144,14 +150,14 @@ class Transform3d:
     """
 
     def __init__(
-            self,
-            default_batch_size=1,
-            dtype: torch.dtype = torch.float32,
-            device='cpu',
-            matrix: Optional[torch.Tensor] = None,
-            rot: Optional[typing.Iterable] = None,
-            pos: Optional[typing.Iterable] = None,
-    ):
+        self,
+        default_batch_size: int = 1,
+        dtype: torch.dtype = torch.float32,
+        device: Union[str, torch.device] = "cpu",
+        matrix: Optional[torch.Tensor] = None,
+        rot: Optional[typing.Iterable] = None,
+        pos: Optional[typing.Iterable] = None,
+    ) -> None:
         """
         Args:
             default_batch_size: A positive integer representing the minibatch size
@@ -175,14 +181,12 @@ class Transform3d:
                 matrix argument, if any.
         """
         if matrix is None:
-            self._matrix = torch.eye(4, dtype=dtype, device=device).unsqueeze(0).repeat(default_batch_size, 1, 1)
+            self._matrix: torch.Tensor = torch.eye(4, dtype=dtype, device=device).unsqueeze(0).repeat(default_batch_size, 1, 1)
         else:
             if matrix.ndim not in (2, 3):
                 raise ValueError('"matrix" has to be a 2- or a 3-dimensional tensor.')
             if matrix.shape[-2] != 4 or matrix.shape[-1] != 4:
-                raise ValueError(
-                    '"matrix" has to be a tensor of shape (minibatch, 4, 4)'
-                )
+                raise ValueError('"matrix" has to be a tensor of shape (minibatch, 4, 4)')
             # set the device from matrix
             device = matrix.device
             self._matrix = matrix.view(-1, 4, 4)
@@ -213,25 +217,25 @@ class Transform3d:
             rot_h = torch.cat((rot, zeros), dim=-2).reshape(-1, 4, 3)
             self._matrix = torch.cat((rot_h, self._matrix[:, :, 3].reshape(-1, 4, 1)), dim=-1)
 
-        self._lu = None
-        self.device = device
-        self.dtype = self._matrix.dtype
+        self._lu: Optional[Any] = None
+        self.device: Union[str, torch.device] = device
+        self.dtype: torch.dtype = self._matrix.dtype
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.get_matrix().shape[0]
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Any) -> "Transform3d":
         return Transform3d(matrix=self.get_matrix()[item])
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         m = self.get_matrix()
         pos = m[:, :3, 3]
         rot = matrix_to_quaternion(m[:, :3, :3])
-        return "Transform3d(rot={}, pos={})".format(rot, pos).replace('\n       ', '')
+        return f"Transform3d(rot={rot}, pos={pos})".replace("\n       ", "")
 
-    def compose(self, *others):
+    def compose(self, *others: "Transform3d") -> "Transform3d":
         """
-        Return a new Transform3d with the tranforms to compose stored as
+        Return a new Transform3d with the transforms to compose stored as
         an internal list.
 
         Args:
@@ -240,7 +244,6 @@ class Transform3d:
         Returns:
             A new Transform3d with the stored transforms
         """
-
         mat = self._matrix
         for other in others:
             mat = _broadcast_bmm(mat, other.get_matrix())
@@ -248,21 +251,20 @@ class Transform3d:
         out = Transform3d(device=self.device, dtype=self.dtype, matrix=mat)
         return out
 
-    def get_matrix(self):
+    def get_matrix(self) -> torch.Tensor:
         """
         Return the Nx4x4 homogeneous transformation matrix represented by this object.
         """
         return self._matrix
 
-    def _get_matrix_inverse(self):
+    def _get_matrix_inverse(self) -> torch.Tensor:
         """
         Return the inverse of self._matrix.
         """
-
         return self._invert_transformation_matrix(self._matrix)
 
     @staticmethod
-    def _invert_transformation_matrix(T):
+    def _invert_transformation_matrix(T: torch.Tensor) -> torch.Tensor:
         """
         Invert homogeneous transformation matrix.
         """
@@ -273,7 +275,7 @@ class Transform3d:
         Tinv[:, :3, 3:] = -Tinv[:, :3, :3] @ t.unsqueeze(-1)
         return Tinv
 
-    def inverse(self, invert_composed: bool = False):
+    def inverse(self, invert_composed: bool = False) -> "Transform3d":
         """
         Returns a new Transform3D object that represents an inverse of the
         current transformation.
@@ -287,18 +289,21 @@ class Transform3d:
         """
 
         i_matrix = self._get_matrix_inverse()
-
         tinv = Transform3d(matrix=i_matrix, device=self.device)
-
         return tinv
 
-    def stack(self, *others):
-        transforms = [self] + list(others)
+    def stack(self, *others: "Transform3d") -> "Transform3d":
+        transforms = [self, *list(others)]
         matrix = torch.cat([t._matrix for t in transforms], dim=0)
         out = Transform3d(matrix=matrix, device=self.device, dtype=self.dtype)
         return out
 
-    def transform_points(self, points, eps: Optional[float] = None, batch_to_batch=False):
+    def transform_points(
+        self,
+        points: torch.Tensor,
+        eps: Optional[float] = None,
+        batch_to_batch: bool = False,
+    ) -> torch.Tensor:
         """
         Use this transform to transform a set of 3D points. Assumes row major
         ordering of the input points.
@@ -306,7 +311,7 @@ class Transform3d:
         Args:
             points: Tensor of shape (P, 3) or (N, P, 3)
             eps: If eps!=None, the argument is used to clamp the
-                last coordinate before peforming the final division.
+                last coordinate before performing the final division.
                 The clamping corresponds to:
                 last_coord := (last_coord.sign() + (last_coord==0)) *
                 torch.clamp(last_coord.abs(), eps),
@@ -348,7 +353,7 @@ class Transform3d:
 
         return points_out
 
-    def transform_normals(self, normals, batch_to_batch=False):
+    def transform_normals(self, normals: torch.Tensor, batch_to_batch: bool = False) -> torch.Tensor:
         """
         Use this transform to transform a set of normal vectors.
 
@@ -366,10 +371,7 @@ class Transform3d:
             raise ValueError(msg % (normals.shape,))
         mat = self.inverse().get_matrix()[:, :3, :3]
 
-        if batch_to_batch:
-            normals_out = linalg.batch_batch_product(normals, mat)
-        else:
-            normals_out = _broadcast_bmm(normals, mat)
+        normals_out = linalg.batch_batch_product(normals, mat) if batch_to_batch else _broadcast_bmm(normals, mat)
 
         # This doesn't pass unit tests. TODO investigate further
         # if self._lu is None:
@@ -383,7 +385,7 @@ class Transform3d:
 
         return normals_out
 
-    def transform_shape_operator(self, shape_operators):
+    def transform_shape_operator(self, shape_operators: torch.Tensor) -> torch.Tensor:
         """
         Use this transform to transform a set of shape_operator (or Weingarten map).
         This is the hessian of a signed-distance, i.e. gradient of a normal vector.
@@ -408,19 +410,24 @@ class Transform3d:
 
         return shape_operators_out
 
-    def translate(self, *args, **kwargs):
+    def translate(self, *args: Any, **kwargs: Any) -> "Transform3d":
         return self.compose(Translate(device=self.device, *args, **kwargs))
 
-    def scale(self, *args, **kwargs):
+    def scale(self, *args: Any, **kwargs: Any) -> "Transform3d":
         return self.compose(Scale(device=self.device, *args, **kwargs))
 
-    def rotate(self, *args, **kwargs):
+    def rotate(self, *args: Any, **kwargs: Any) -> "Transform3d":
         return self.compose(Rotate(device=self.device, *args, **kwargs))
 
-    def rotate_axis_angle(self, *args, **kwargs):
+    def rotate_axis_angle(self, *args: Any, **kwargs: Any) -> "Transform3d":
         return self.compose(RotateAxisAngle(device=self.device, *args, **kwargs))
 
-    def sample_perturbations(self, num_perturbations, radian_sigma, translation_sigma):
+    def sample_perturbations(
+        self,
+        num_perturbations: int,
+        radian_sigma: float,
+        translation_sigma: float,
+    ) -> "Transform3d":
         mat = self.get_matrix()
         if mat.shape[0] == 1:
             mat = mat[0]
@@ -428,7 +435,7 @@ class Transform3d:
         out = Transform3d(matrix=all_mats)
         return out
 
-    def clone(self):
+    def clone(self) -> "Transform3d":
         """
         Deep copy of Transforms object. All internal tensors are cloned
         individually.
@@ -442,7 +449,12 @@ class Transform3d:
         other._matrix = self._matrix.clone()
         return other
 
-    def to(self, device, copy: bool = False, dtype=None):
+    def to(
+        self,
+        device: Union[str, torch.device],
+        copy: bool = False,
+        dtype: Optional[torch.dtype] = None,
+    ) -> "Transform3d":
         """
         Match functionality of torch.Tensor.to()
         If copy = True or the self Tensor is on a different device, the
@@ -467,15 +479,22 @@ class Transform3d:
         other._matrix = self._matrix.to(device=device, dtype=dtype)
         return other
 
-    def cpu(self):
+    def cpu(self) -> "Transform3d":
         return self.to(torch.device("cpu"))
 
-    def cuda(self):
+    def cuda(self) -> "Transform3d":
         return self.to(torch.device("cuda"))
 
 
 class Translate(Transform3d):
-    def __init__(self, x, y=None, z=None, dtype=torch.float32, device: str = "cpu"):
+    def __init__(
+        self,
+        x: Union[float, torch.Tensor],
+        y: Optional[Union[float, torch.Tensor]] = None,
+        z: Optional[Union[float, torch.Tensor]] = None,
+        dtype: torch.dtype = torch.float32,
+        device: Union[str, torch.device] = "cpu",
+    ) -> None:
         """
         Create a new Transform3d representing 3D translations.
 
@@ -498,7 +517,7 @@ class Translate(Transform3d):
         mat[:, :3, 3] = xyz
         self._matrix = mat
 
-    def _get_matrix_inverse(self):
+    def _get_matrix_inverse(self) -> torch.Tensor:
         """
         Return the inverse of self._matrix.
         """
@@ -509,7 +528,14 @@ class Translate(Transform3d):
 
 
 class Scale(Transform3d):
-    def __init__(self, x, y=None, z=None, dtype=torch.float32, device: str = "cpu"):
+    def __init__(
+        self,
+        x: Union[float, torch.Tensor],
+        y: Optional[Union[float, torch.Tensor]] = None,
+        z: Optional[Union[float, torch.Tensor]] = None,
+        dtype: torch.dtype = torch.float32,
+        device: Union[str, torch.device] = "cpu",
+    ) -> None:
         """
         A Transform3d representing a scaling operation, with different scale
         factors along each coordinate axis.
@@ -538,7 +564,7 @@ class Scale(Transform3d):
         mat[:, 2, 2] = xyz[:, 2]
         self._matrix = mat
 
-    def _get_matrix_inverse(self):
+    def _get_matrix_inverse(self) -> torch.Tensor:
         """
         Return the inverse of self._matrix.
         """
@@ -550,8 +576,12 @@ class Scale(Transform3d):
 
 class Rotate(Transform3d):
     def __init__(
-            self, R, dtype=torch.float32, device: str = "cpu", orthogonal_tol: float = 1e-5
-    ):
+        self,
+        R: Union[torch.Tensor, Iterable[Any]],
+        dtype: torch.dtype = torch.float32,
+        device: Union[str, torch.device] = "cpu",
+        orthogonal_tol: float = 1e-5,
+    ) -> None:
         """
         Create a new Transform3d representing 3D rotation using a rotation
         matrix as the input.
@@ -583,7 +613,7 @@ class Rotate(Transform3d):
         mat[:, :3, :3] = R
         self._matrix = mat
 
-    def _get_matrix_inverse(self):
+    def _get_matrix_inverse(self) -> torch.Tensor:
         """
         Return the inverse of self._matrix.
         """
@@ -592,13 +622,13 @@ class Rotate(Transform3d):
 
 class RotateAxisAngle(Rotate):
     def __init__(
-            self,
-            angle,
-            axis: str = "X",
-            degrees: bool = True,
-            dtype=torch.float64,
-            device: str = "cpu",
-    ):
+        self,
+        angle: Union[float, torch.Tensor],
+        axis: str = "X",
+        degrees: bool = True,
+        dtype: torch.dtype = torch.float64,
+        device: Union[str, torch.device] = "cpu",
+    ) -> None:
         """
         Create a new Transform3d representing 3D rotation about an axis
         by an angle.
@@ -630,7 +660,11 @@ class RotateAxisAngle(Rotate):
         super().__init__(device=device, R=R)
 
 
-def _handle_coord(c, dtype, device):
+def _handle_coord(
+    c: Union[float, torch.Tensor],
+    dtype: torch.dtype,
+    device: Union[str, torch.device],
+) -> torch.Tensor:
     """
     Helper function for _handle_input.
 
@@ -647,7 +681,15 @@ def _handle_coord(c, dtype, device):
     return c
 
 
-def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool = False):
+def _handle_input(
+    x: Union[float, torch.Tensor],
+    y: Optional[Union[float, torch.Tensor]],
+    z: Optional[Union[float, torch.Tensor]],
+    dtype: torch.dtype,
+    device: Union[str, torch.device],
+    name: str,
+    allow_singleton: bool = False,
+) -> torch.Tensor:
     """
     Helper function to handle parsing logic for building transforms. The output
     is always a tensor of shape (N, 3), but there are several types of allowed
@@ -681,7 +723,7 @@ def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool = Fal
             msg = "Expected tensor of shape (N, 3); got %r (in %s)"
             raise ValueError(msg % (x.shape, name))
         if y is not None or z is not None:
-            msg = "Expected y and z to be None (in %s)" % name
+            msg = f"Expected y and z to be None (in {name})"
             raise ValueError(msg)
         return x
 
@@ -697,14 +739,19 @@ def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool = Fal
     N = max(sizes)
     for c in xyz:
         if c.shape[0] != 1 and c.shape[0] != N:
-            msg = "Got non-broadcastable sizes %r (in %s)" % (sizes, name)
+            msg = f"Got non-broadcastable sizes {sizes!r} (in {name})"
             raise ValueError(msg)
     xyz = [c.expand(N) for c in xyz]
     xyz = torch.stack(xyz, dim=1)
     return xyz
 
 
-def _handle_angle_input(x, dtype, device: str, name: str):
+def _handle_angle_input(
+    x: Union[float, torch.Tensor],
+    dtype: torch.dtype,
+    device: Union[str, torch.device],
+    name: str,
+) -> torch.Tensor:
     """
     Helper function for building a rotation function using angles.
     The output is always of shape (N,).
@@ -721,7 +768,7 @@ def _handle_angle_input(x, dtype, device: str, name: str):
         return _handle_coord(x, dtype, device)
 
 
-def _broadcast_bmm(a, b):
+def _broadcast_bmm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     Batch multiply two matrices and broadcast if necessary.
 
@@ -730,7 +777,7 @@ def _broadcast_bmm(a, b):
         b: torch tensor of shape (N, K, K)
 
     Returns:
-        a and b broadcast multipled. The output batch dimension is max(N, M).
+        a and b broadcast multiplied. The output batch dimension is max(N, M).
 
     To broadcast transforms across a batch dimension if M != N then
     expect that either M = 1 or N = 1. The tensor with batch dimension 1 is
@@ -749,7 +796,7 @@ def _broadcast_bmm(a, b):
     return a.bmm(b)
 
 
-def _check_valid_rotation_matrix(R, tol: float = 1e-7):
+def _check_valid_rotation_matrix(R: torch.Tensor, tol: float = 1e-7) -> None:
     """
     Determine if R is a valid rotation matrix by checking it satisfies the
     following conditions:
@@ -773,4 +820,3 @@ def _check_valid_rotation_matrix(R, tol: float = 1e-7):
     if not (orthogonal and no_distortion):
         msg = "R is not a valid rotation matrix"
         warnings.warn(msg)
-    return

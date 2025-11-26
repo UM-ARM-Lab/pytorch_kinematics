@@ -1,9 +1,7 @@
 import os
-from timeit import default_timer as timer
-
-import torch
 
 import pytorch_kinematics as pk
+
 
 TEST_DIR = os.path.dirname(__file__)
 

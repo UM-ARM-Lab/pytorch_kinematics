@@ -2,13 +2,13 @@ import os
 from timeit import default_timer as timer
 
 import numpy as np
+import pybullet as p
+import pybullet_data
+import pytorch_seed
 import torch
 
 import pytorch_kinematics as pk
-import pytorch_seed
 
-import pybullet as p
-import pybullet_data
 
 visualize = False
 
@@ -23,6 +23,7 @@ def _make_robot_translucent(robot_id, alpha=0.4):
     visual_data = p.getVisualShapeData(robot_id)
     for link in visual_data:
         make_transparent(link)
+
 
 def create_test_chain(robot="kuka_iiwa", device="cpu"):
     if robot == "kuka_iiwa":
@@ -39,6 +40,7 @@ def create_test_chain(robot="kuka_iiwa", device="cpu"):
     else:
         raise NotImplementedError(f"Robot {robot} not implemented")
     return chain, urdf
+
 
 def test_jacobian_follower(robot="kuka_iiwa"):
     pytorch_seed.seed(2)
@@ -68,13 +70,17 @@ def test_jacobian_follower(robot="kuka_iiwa"):
     goal_rot = pk.matrix_to_euler_angles(goal[..., :3, :3], "XYZ")
 
     num_retries = 10
-    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=num_retries,
-                            joint_limits=lim.T,
-                            early_stopping_any_converged=True,
-                            early_stopping_no_improvement="all",
-                            # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
-                            debug=False,
-                            lr=0.2)
+    ik = pk.PseudoInverseIK(
+        chain,
+        max_iterations=30,
+        num_retries=num_retries,
+        joint_limits=lim.T,
+        early_stopping_any_converged=True,
+        early_stopping_no_improvement="all",
+        # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
+        debug=False,
+        lr=0.2,
+    )
 
     # do IK
     timer_start = timer()
@@ -101,7 +107,7 @@ def test_jacobian_follower(robot="kuka_iiwa"):
         pitch = -65
         # dist = 1.
         dist = 2.4
-        target = np.array([2., 1.5, 0])
+        target = np.array([2.0, 1.5, 0])
         p.resetDebugVisualizerCamera(dist, yaw, pitch, target)
 
         plane_id = p.loadURDF("plane.urdf", [0, 0, 0], useFixedBase=True)
@@ -121,7 +127,12 @@ def test_jacobian_follower(robot="kuka_iiwa"):
 
         for i in range(num_robots):
             this_offset = np.array([i % 4 * offset, i // 4 * offset, 0])
-            armId = p.loadURDF(urdf, basePosition=pos + this_offset, baseOrientation=rot, useFixedBase=True)
+            armId = p.loadURDF(
+                urdf,
+                basePosition=pos + this_offset,
+                baseOrientation=rot,
+                useFixedBase=True,
+            )
             # _make_robot_translucent(armId, alpha=0.6)
             robots.append({"id": armId, "offset": this_offset, "pos": pos})
 
@@ -129,13 +140,18 @@ def test_jacobian_follower(robot="kuka_iiwa"):
 
         goals = []
         # draw cone to indicate pose instead of sphere
-        visId = p.createVisualShape(p.GEOM_MESH, fileName="meshes/cone.obj", meshScale=1.0,
-                                    rgbaColor=[0., 1., 0., 0.5])
-        for i in range(num_robots):
+        visId = p.createVisualShape(
+            p.GEOM_MESH,
+            fileName="meshes/cone.obj",
+            meshScale=1.0,
+            rgbaColor=[0.0, 1.0, 0.0, 0.5],
+        )
+        for _ in range(num_robots):
             goals.append(p.createMultiBody(baseMass=0, baseVisualShapeIndex=visId))
 
         try:
             import window_recorder
+
             with window_recorder.WindowRecorder(save_dir="."):
                 # batch over goals with num_robots
                 for j in range(0, M, num_robots):
@@ -154,9 +170,11 @@ def test_jacobian_follower(robot="kuka_iiwa"):
                         if ii > show_max_num_retries_per_goal:
                             break
                         for jj in range(num_robots):
-                            p.resetBasePositionAndOrientation(goals[jj],
-                                                              goal_pos[j + jj].cpu().numpy() + robots[jj]["offset"],
-                                                              xyzw[jj].cpu().numpy())
+                            p.resetBasePositionAndOrientation(
+                                goals[jj],
+                                goal_pos[j + jj].cpu().numpy() + robots[jj]["offset"],
+                                xyzw[jj].cpu().numpy(),
+                            )
                             armId = robots[jj]["id"]
                             q = solutions[jj, ii, :]
                             for dof in range(q.shape[0]):
@@ -192,17 +210,21 @@ def test_ik_in_place_no_err(robot="kuka_iiwa"):
     # transform to world frame for visualization
     goal_tf = rob_tf.compose(goal_in_rob_frame_tf)
     goal = goal_tf.get_matrix()
-    goal_pos = goal[..., :3, 3]
-    goal_rot = pk.matrix_to_euler_angles(goal[..., :3, :3], "XYZ")
+    goal[..., :3, 3]
+    pk.matrix_to_euler_angles(goal[..., :3, :3], "XYZ")
 
-    ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10,
-                            joint_limits=lim.T,
-                            early_stopping_any_converged=True,
-                            early_stopping_no_improvement="all",
-                            retry_configs=cur_q.reshape(1, -1),
-                            # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
-                            debug=False,
-                            lr=0.2)
+    ik = pk.PseudoInverseIK(
+        chain,
+        max_iterations=30,
+        num_retries=10,
+        joint_limits=lim.T,
+        early_stopping_any_converged=True,
+        early_stopping_no_improvement="all",
+        retry_configs=cur_q.reshape(1, -1),
+        # line_search=pk.BacktrackingLineSearch(max_lr=0.2),
+        debug=False,
+        lr=0.2,
+    )
 
     # do IK
     sol = ik.solve(goal_in_rob_frame_tf)
@@ -210,8 +232,6 @@ def test_ik_in_place_no_err(robot="kuka_iiwa"):
     assert torch.allclose(sol.solutions[0][0], cur_q)
     assert torch.allclose(sol.err_pos[0], torch.zeros(1, device=device), atol=1e-6)
     assert torch.allclose(sol.err_rot[0], torch.zeros(1, device=device), atol=1e-6)
-
-
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # PyTorch Robot Kinematics
 - Parallel and differentiable forward kinematics (FK), Jacobian calculation, and damped least squares inverse kinematics (IK)
-- Load robot description from URDF, SDF, and MJCF formats 
+- Load robot description from URDF, SDF, and MJCF formats
 - SDF queries batched across configurations and points via [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric)
 
 # Installation
@@ -183,7 +183,7 @@ ret = chain.forward_kinematics(th)
 ## Jacobian calculation
 The Jacobian (in the kinematics context) is a matrix describing how the end effector changes with respect to joint value changes
 (where ![dx](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D) is the twist, or stacked velocity and angular velocity):
-![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D) 
+![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D)
 
 For `SerialChain` we provide a differentiable and parallelizable method for computing the Jacobian with respect to the base frame.
 ```python
@@ -223,7 +223,7 @@ The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.m
 for a survey of ways to do so. Note that IK may be better performed through other means (but doing it through the Jacobian can give an end-to-end differentiable method).
 
 ## Inverse Kinematics (IK)
-Inverse kinematics is available via damped least squares (iterative steps with Jacobian pseudo-inverse damped to avoid oscillation near singularlities). 
+Inverse kinematics is available via damped least squares (iterative steps with Jacobian pseudo-inverse damped to avoid oscillation near singularlities).
 Compared to other IK libraries, these are the typical advantages over them:
 - not ROS dependent (many IK libraries need the robot description on the ROS parameter server)
 - batched in both goal specification and retries from different starting configurations
