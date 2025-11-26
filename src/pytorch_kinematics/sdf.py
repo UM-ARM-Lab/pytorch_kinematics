@@ -122,9 +122,6 @@ def build_chain_from_sdf(data: str) -> chain.Chain:
         if has_root[i]:
             root_link = lmap[joints[i].parent]
             break
-    else:
-        # fallback if no root is found; should not usually happen
-        root_link = lmap[joints[0].parent]
 
     root_frame = frame.Frame(root_link.name)
     root_frame.joint = frame.Joint(offset=_convert_transform(root_link.pose))
