@@ -24,7 +24,6 @@ from .core import (
     on_error_stderr,
     reflect,
     start_namespace,
-    variable,
 )
 
 
@@ -48,7 +47,6 @@ __all__ = [
     "FactoryType",
     "DuckTypedFactory",
     "Param",
-    "variable",
     "Attribute",
     "Element",
     "AggregateElement",
