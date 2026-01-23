@@ -50,8 +50,9 @@ def calc_jacobian(serial_chain, th, tool=None, ret_eef_pose=False):
         cur_frame_transform = f.get_transform(th[:, -cnt]).get_matrix()
         cur_transform = cur_frame_transform @ cur_transform
 
-    # currently j_eef is Jacobian in end-effector frame, convert to base/world frame
-    pose = serial_chain.forward_kinematics(th).get_matrix()
+    # After the loop, cur_transform is the accumulated base→EEF transform.
+    # Reuse it instead of calling forward_kinematics again.
+    pose = cur_transform
     rotation = pose[:, :3, :3]
     j_tr = torch.zeros((N, 6, 6), dtype=serial_chain.dtype, device=serial_chain.device)
     j_tr[:, :3, :3] = rotation
