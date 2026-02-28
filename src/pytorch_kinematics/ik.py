@@ -7,6 +7,31 @@ import torch
 import inspect
 from matplotlib import pyplot as plt, cm as cm
 
+# Check if torch.compile is available (PyTorch 2.0+)
+_TORCH_COMPILE_AVAILABLE = hasattr(torch, 'compile') and torch.__version__ >= '2.0'
+
+
+def _compute_dq_kernel(J: torch.Tensor, dx: torch.Tensor, reg_matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Compute joint velocity using damped least squares.
+
+    This function is designed to be compatible with torch.compile for JIT optimization.
+
+    Args:
+        J: Jacobian matrix (N, 6, DOF)
+        dx: Pose error (N, 6, 1)
+        reg_matrix: Regularization matrix (6, 6)
+
+    Returns:
+        dq: Joint velocity (N, DOF, 1)
+    """
+    # JJ^T + lambda^2*I
+    tmpA = J @ J.transpose(1, 2) + reg_matrix
+    # Solve (JJ^T + lambda^2*I) A = dx
+    A = torch.linalg.solve(tmpA, dx)
+    # dq = J^T @ A
+    return J.transpose(1, 2) @ A
+
 
 class IKSolution:
     def __init__(self, dof, num_problems, num_retries, pos_tolerance, rot_tolerance, device="cpu"):
@@ -234,13 +259,14 @@ class InverseKinematics:
         raise NotImplementedError()
 
 
-def delta_pose(m: torch.tensor, target_pos, target_wxyz):
+def delta_pose(m: torch.tensor, target_pos, target_wxyz, out: torch.Tensor = None):
     """
     Determine the error in position and rotation between the given poses and the target poses
 
     :param m: (N x M x 4 x 4) tensor of homogenous transforms
     :param target_pos:
     :param target_wxyz: target orientation represented in unit quaternion
+    :param out: optional pre-allocated output buffer (N*M, 6, 1) to reduce memory allocation
     :return: (N*M, 6, 1) tensor of delta pose (dx, dy, dz, droll, dpitch, dyaw)
     """
     pos_diff = target_pos.unsqueeze(1) - m[:, :, :3, 3]
@@ -257,7 +283,13 @@ def delta_pose(m: torch.tensor, target_pos, target_wxyz):
 
     rot_diff = diff_axis_angle.view(-1, 3, 1)
 
-    dx = torch.cat((pos_diff, rot_diff), dim=1)
+    # Use pre-allocated buffer if provided
+    if out is not None:
+        out[:, :3] = pos_diff
+        out[:, 3:] = rot_diff
+        dx = out
+    else:
+        dx = torch.cat((pos_diff, rot_diff), dim=1)
     return dx, pos_diff, rot_diff
 
 
@@ -266,18 +298,31 @@ def apply_mask(mask, *args):
 
 
 class PseudoInverseIK(InverseKinematics):
-    def compute_dq(self, J, dx):
-        # lambda^2*I (lambda^2 is regularization)
-        reg = self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
+    def __init__(self, *args, use_compile: bool = False, **kwargs):
+        """
+        Initialize PseudoInverseIK solver.
 
-        # JJ^T + lambda^2*I (lambda^2 is regularization)
-        tmpA = J @ J.transpose(1, 2) + reg
-        # (JJ^T + lambda^2I) A = dx
-        # A = (JJ^T + lambda^2I)^-1 dx
-        A = torch.linalg.solve(tmpA, dx)
-        # dq = J^T (JJ^T + lambda^2I)^-1 dx
-        dq = J.transpose(1, 2) @ A
-        return dq
+        Args:
+            *args: Arguments passed to InverseKinematics.
+            use_compile: If True and PyTorch 2.0+ is available, use torch.compile
+                for JIT compilation of the compute_dq kernel. This can provide
+                performance improvements after a warmup period. Default: False.
+            **kwargs: Keyword arguments passed to InverseKinematics.
+        """
+        super().__init__(*args, **kwargs)
+        # Pre-compute regularization matrix once
+        self._reg_matrix = self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
+
+        # Set up compute_dq kernel (potentially compiled)
+        self._use_compile = use_compile and _TORCH_COMPILE_AVAILABLE
+        if self._use_compile:
+            self._compute_dq_fn = torch.compile(_compute_dq_kernel)
+        else:
+            self._compute_dq_fn = _compute_dq_kernel
+
+    def compute_dq(self, J, dx):
+        """Compute joint velocity using damped least squares."""
+        return self._compute_dq_fn(J, dx, self._reg_matrix)
 
     def solve(self, target_poses: Transform3d) -> IKSolution:
         self.clear()
@@ -313,6 +358,11 @@ class PseudoInverseIK(InverseKinematics):
         if inspect.isclass(self.optimizer_method) and issubclass(self.optimizer_method, torch.optim.Optimizer):
             q.requires_grad = True
             optimizer = torch.optim.Adam([q], lr=self.lr)
+
+        # Pre-allocate delta pose buffer to reduce memory allocation in loop
+        batch_size = M * self.num_retries
+        dx_buffer = torch.empty((batch_size, 6, 1), device=self.device, dtype=self.dtype)
+
         for i in range(self.max_iterations):
             with torch.no_grad():
                 # early termination if we're out of problems to solve
@@ -324,7 +374,7 @@ class PseudoInverseIK(InverseKinematics):
                 J, m = self.chain.jacobian(q, ret_eef_pose=True)
                 # unflatten to broadcast with goal
                 m = m.view(-1, self.num_retries, 4, 4)
-                dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_wxyz)
+                dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_wxyz, out=dx_buffer)
 
                 # damped least squares method
                 # lambda^2*I (lambda^2 is regularization)
@@ -344,7 +394,8 @@ class PseudoInverseIK(InverseKinematics):
                         lr = lr.unsqueeze(1)
                     else:
                         lr = self.lr
-                    q = q + lr * dq
+                    # Use in-place addition to reduce memory allocation
+                    q = q.add(dq, alpha=lr) if isinstance(lr, float) else q.add(lr * dq)
 
             with torch.no_grad():
                 self.err_all = dx.squeeze()
