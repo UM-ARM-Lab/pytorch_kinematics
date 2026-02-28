@@ -45,7 +45,7 @@ def _build_chain_recurse(m, parent_frame, parent_body):
                 child_joint = frame.Joint(body.name + "_fixed_joint")
             child_link = frame.Link(body.name, offset=tf.Transform3d(rot=body.quat, pos=body.pos))
             child_frame = frame.Frame(name=body.name, link=child_link, joint=child_joint)
-            parent_frame.children = parent_frame.children + [child_frame, ]
+            parent_frame.children.append(child_frame)
             _build_chain_recurse(m, child_frame, body)
 
     # iterate through all sites that are children of parent_body
@@ -54,7 +54,7 @@ def _build_chain_recurse(m, parent_frame, parent_body):
         if site.bodyid == parent_body.id:
             site_link = frame.Link(site.name, offset=tf.Transform3d(rot=site.quat, pos=site.pos))
             site_frame = frame.Frame(name=site.name, link=site_link)
-            parent_frame.children = parent_frame.children + [site_frame, ]
+            parent_frame.children.append(site_frame)
 
 
 def build_chain_from_mjcf(data, body: Union[None, str, int] = None, assets:Optional[Dict[str,bytes]]=None):
