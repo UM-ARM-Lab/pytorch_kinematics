@@ -746,6 +746,8 @@ def _broadcast_bmm(a, b):
             a = a.expand(len(b), -1, -1)
         if len(b) == 1:
             b = b.expand(len(a), -1, -1)
+    if a.dtype != b.dtype:
+        b = b.to(dtype=a.dtype)
     return a.bmm(b)
 
 
