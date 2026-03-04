@@ -463,6 +463,12 @@ class SerialChain(Chain):
         for i in range(len(ancestors) - 1):
             frames[i].children = [frames[i + 1]]
 
+        # The root frame's joint and link offset describe the transform from its parent
+        # to itself, which is outside this serial chain. Reset them so the root acts as
+        # the origin of the new coordinate system.
+        frames[0].joint = Joint()
+        frames[0].link.offset = None
+
         self._serial_frames = frames
         super().__init__(frames[0], **kwargs)
 

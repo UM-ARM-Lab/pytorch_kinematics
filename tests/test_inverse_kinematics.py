@@ -207,7 +207,7 @@ def test_ik_in_place_no_err(robot="kuka_iiwa"):
     # do IK
     sol = ik.solve(goal_in_rob_frame_tf)
     assert sol.converged.sum() == M
-    assert torch.allclose(sol.solutions[0][0], cur_q)
+    assert torch.allclose(sol.solutions[0][0], cur_q, atol=1e-6)
     assert torch.allclose(sol.err_pos[0], torch.zeros(1, device=device), atol=1e-6)
     assert torch.allclose(sol.err_rot[0], torch.zeros(1, device=device), atol=1e-6)
 

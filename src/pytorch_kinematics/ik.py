@@ -3,6 +3,7 @@ from pytorch_kinematics.transforms import Transform3d
 from pytorch_kinematics.transforms import rotation_conversions
 from typing import NamedTuple, Union, Optional, Callable
 import typing
+import math
 import torch
 import inspect
 from matplotlib import pyplot as plt, cm as cm
@@ -86,13 +87,17 @@ class IKSolution:
             # those that have converged are no longer remaining
             self.update_remaining_with_keep_mask(keep_mask)
 
-        self.solutions = qq
-        self.err_pos = err_pos
-        self.err_rot = err_rot
-        self.converged_pos = converged_pos
-        self.converged_rot = converged_rot
-        self.converged = converged
-        self.converged_any = converged_any
+        # sticky convergence: only overwrite retries that haven't already converged
+        # this prevents overwriting a good solution if the solver overshoots on the next step
+        already_converged = self.converged
+        update_mask = ~already_converged
+        self.solutions[update_mask] = qq[update_mask]
+        self.err_pos[update_mask] = err_pos[update_mask]
+        self.err_rot[update_mask] = err_rot[update_mask]
+        self.converged_pos = self.converged_pos | converged_pos
+        self.converged_rot = self.converged_rot | converged_rot
+        self.converged = self.converged | converged
+        self.converged_any = self.converged_any | converged_any
 
         return converged_any
 
@@ -166,7 +171,9 @@ class InverseKinematics:
                  debug=False,
                  early_stopping_any_converged=False,
                  early_stopping_no_improvement="any", early_stopping_no_improvement_patience=2,
-                 optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd"
+                 optimizer_method: Union[str, typing.Type[torch.optim.Optimizer]] = "sgd",
+                 enforce_joint_limits: bool = True,
+                 num_limit_refinement_iterations: int = 10
                  ):
         """
         :param serial_chain:
@@ -191,6 +198,10 @@ class InverseKinematics:
         :param early_stopping_no_improvement_patience: number of consecutive iterations with no improvement before
         considering it no improvement
         :param optimizer_method: either a string or a torch.optim.Optimizer class
+        :param enforce_joint_limits: whether to enforce joint limits on the solution. Uses the chain's joint limits
+        (chain.low/chain.high). After solving, revolute joints are wrapped by multiples of 2*pi, then any remaining
+        violations are resolved via clamped refinement iterations. Set to False to disable.
+        :param num_limit_refinement_iterations: number of clamped IK refinement iterations for enforcing joint limits
         """
         self.chain = serial_chain
         self.dtype = serial_chain.dtype
@@ -198,6 +209,12 @@ class InverseKinematics:
         joint_names = self.chain.get_joint_parameter_names(exclude_fixed=True)
         self.dof = len(joint_names)
         self.debug = debug
+        self.enforce_joint_limits = enforce_joint_limits
+        self.num_limit_refinement_iterations = num_limit_refinement_iterations
+        # precompute which joints are revolute (for 2*pi wrapping)
+        joints = self.chain.get_joints(exclude_fixed=True)
+        self._revolute_mask = torch.tensor([j.joint_type == 'revolute' for j in joints],
+                                           dtype=torch.bool, device=self.device)
         self.early_stopping_any_converged = early_stopping_any_converged
         self.early_stopping_no_improvement = early_stopping_no_improvement
         self.early_stopping_no_improvement_patience = early_stopping_no_improvement_patience
@@ -398,35 +415,37 @@ class PseudoInverseIK(InverseKinematics):
                     q = q.add(dq, alpha=lr) if isinstance(lr, float) else q.add(lr * dq)
 
             with torch.no_grad():
-                self.err_all = dx.squeeze()
+                # recompute error at the new q so convergence check matches the stored solution
+                m_new = self.chain.forward_kinematics(q).get_matrix()
+                m_new = m_new.view(-1, self.num_retries, 4, 4)
+                dx_new, pos_diff, rot_diff = delta_pose(m_new, target_pos, target_wxyz)
+                self.err_all = dx_new.squeeze()
                 self.err = self.err_all.norm(dim=-1)
                 sol.update(q, self.err_all, use_keep_mask=self.early_stopping_any_converged)
 
                 if self.early_stopping_no_improvement is not None:
                     if self.no_improve_counter is None:
                         self.no_improve_counter = torch.zeros_like(self.err)
+                        self.err_min = self.err.clone()
                     else:
-                        if self.err_min is None:
-                            self.err_min = self.err.clone()
-                        else:
-                            improved = self.err < self.err_min
-                            self.err_min[improved] = self.err[improved]
+                        improved = self.err < self.err_min
+                        self.err_min[improved] = self.err[improved]
 
-                            self.no_improve_counter[improved] = 0
-                            self.no_improve_counter[~improved] += 1
+                        self.no_improve_counter[improved] = 0
+                        self.no_improve_counter[~improved] += 1
 
-                            # those that haven't improved
-                            could_improve = self.no_improve_counter <= self.early_stopping_no_improvement_patience
-                            # consider problems, and only throw out those whose all retries cannot be improved
-                            could_improve = could_improve.reshape(-1, self.num_retries)
-                            if self.early_stopping_no_improvement == "all":
-                                could_improve = could_improve.all(dim=1)
-                            elif self.early_stopping_no_improvement == "any":
-                                could_improve = could_improve.any(dim=1)
-                            elif isinstance(self.early_stopping_no_improvement, float):
-                                ratio_improved = could_improve.sum(dim=1) / self.num_retries
-                                could_improve = ratio_improved > self.early_stopping_no_improvement
-                            sol.update_remaining_with_keep_mask(could_improve)
+                        # those that haven't improved
+                        could_improve = self.no_improve_counter <= self.early_stopping_no_improvement_patience
+                        # consider problems, and only throw out those whose all retries cannot be improved
+                        could_improve = could_improve.reshape(-1, self.num_retries)
+                        if self.early_stopping_no_improvement == "all":
+                            could_improve = could_improve.all(dim=1)
+                        elif self.early_stopping_no_improvement == "any":
+                            could_improve = could_improve.any(dim=1)
+                        elif isinstance(self.early_stopping_no_improvement, float):
+                            ratio_improved = could_improve.sum(dim=1) / self.num_retries
+                            could_improve = ratio_improved > self.early_stopping_no_improvement
+                        sol.update_remaining_with_keep_mask(could_improve)
 
                 if self.debug:
                     pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
@@ -456,9 +475,67 @@ class PseudoInverseIK(InverseKinematics):
             ax[1].set_ylabel("rotation error")
             plt.show()
 
-        if i == self.max_iterations - 1:
-            sol.update(q, self.err_all, use_keep_mask=False)
+        if self.enforce_joint_limits and self._has_finite_limits():
+            self._enforce_limits(sol, target_pos, target_wxyz)
+
         return sol
+
+    def _has_finite_limits(self):
+        """Check if the chain has any finite joint limits."""
+        return torch.isfinite(self.chain.low).any() or torch.isfinite(self.chain.high).any()
+
+    def _wrap_revolute_joints(self, q):
+        """Wrap revolute joint values by multiples of 2*pi to bring them closer to the valid range.
+
+        For revolute joints, q and q + 2*n*pi produce identical FK, so we can freely shift
+        by multiples of 2*pi without affecting the solution. Prismatic joints are left unchanged.
+        """
+        low = self.chain.low
+        high = self.chain.high
+        center = (low + high) / 2
+        # compute the number of 2*pi shifts needed to bring q closest to the center of the limits
+        n = torch.round((center - q) / (2 * math.pi))
+        # only apply to revolute joints
+        q_wrapped = q.clone()
+        q_wrapped[..., self._revolute_mask] = q[..., self._revolute_mask] + n[..., self._revolute_mask] * 2 * math.pi
+        return q_wrapped
+
+    def _enforce_limits(self, sol, target_pos, target_wxyz):
+        """Enforce joint limits on IK solutions via wrapping and clamped refinement.
+
+        1. Wrap revolute joints by 2*pi to bring them into the valid range (preserves FK exactly).
+        2. Clamp any remaining violations and run refinement iterations to recover convergence.
+        3. Update the solution with the refined joint values.
+        """
+        M = target_pos.shape[0]
+        q = sol.solutions.reshape(-1, self.dof)
+
+        # Step 1: wrap revolute joints by 2*pi
+        q = self._wrap_revolute_joints(q)
+
+        # Step 2: clamp to limits
+        q = torch.clamp(q, self.chain.low, self.chain.high)
+
+        # Step 3: clamped refinement iterations to recover from any error introduced by clamping
+        for _ in range(self.num_limit_refinement_iterations):
+            J, m = self.chain.jacobian(q, ret_eef_pose=True)
+            m = m.view(-1, self.num_retries, 4, 4)
+            dx, _, _ = delta_pose(m, target_pos, target_wxyz)
+            dq = self.compute_dq(J, dx).squeeze(2)
+            q = q + self.lr * dq
+            q = torch.clamp(q, self.chain.low, self.chain.high)
+
+        # Reset convergence so all retries are re-evaluated with the limit-enforced solutions
+        sol.converged[:] = False
+        sol.converged_any[:] = False
+        sol.converged_pos[:] = False
+        sol.converged_rot[:] = False
+
+        # Recompute error and update solution
+        m_new = self.chain.forward_kinematics(q).get_matrix()
+        m_new = m_new.view(-1, self.num_retries, 4, 4)
+        dx_new, _, _ = delta_pose(m_new, target_pos, target_wxyz)
+        sol.update(q, dx_new.squeeze(), use_keep_mask=False)
 
 
 class PseudoInverseIKWithSVD(PseudoInverseIK):

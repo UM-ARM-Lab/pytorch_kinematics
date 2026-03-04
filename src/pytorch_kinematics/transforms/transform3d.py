@@ -51,7 +51,7 @@ class Transform3d:
 
     .. code-block:: python
 
-        y1 = t3.transform_points(t2.transform_points(t1.transform_points(x)))
+        y1 = t1.transform_points(t2.transform_points(t3.transform_points(x)))
         y2 = t1.compose(t2).compose(t3).transform_points(x)
         y3 = t1.compose(t2, t3).transform_points(x)
 
@@ -746,6 +746,8 @@ def _broadcast_bmm(a, b):
             a = a.expand(len(b), -1, -1)
         if len(b) == 1:
             b = b.expand(len(a), -1, -1)
+    if a.dtype != b.dtype:
+        b = b.to(dtype=a.dtype)
     return a.bmm(b)
 
 
