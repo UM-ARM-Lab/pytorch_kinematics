@@ -192,6 +192,31 @@ def test_comparison_to_autograd():
         pass
 
 
+def test_mjcf_jacobian():
+    """Test that the Jacobian is correct for MJCF models where link offsets are non-identity (issue #57)."""
+    chain = pk.build_serial_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read(), 'front_left_foot')
+    chain = chain.to(dtype=torch.float64)
+
+    def get_pt(th):
+        return chain.forward_kinematics(th).transform_points(
+            torch.zeros((1, 3), device=th.device, dtype=th.dtype)).squeeze(1)
+
+    N = 20
+    th = torch.rand(N, 2, dtype=torch.float64)
+
+    j_autograd = torch.autograd.functional.jacobian(get_pt, inputs=th, vectorize=True)
+    j_autograd = j_autograd[range(N), :, range(N)]
+
+    j_analytical = chain.jacobian(th)
+
+    # the position Jacobian (first 3 rows) must match autograd
+    assert torch.allclose(j_autograd, j_analytical[:, :3], atol=1e-6), \
+        f"MJCF Jacobian mismatch:\nanalytical:\n{j_analytical[0, :3]}\nautograd:\n{j_autograd[0]}"
+
+    # sanity check: the linear velocity rows should NOT be all zeros
+    assert j_analytical[:, :3].abs().sum() > 0, "Linear velocity Jacobian should be non-zero"
+
+
 if __name__ == "__main__":
     test_correctness()
     test_parallel()
@@ -200,3 +225,4 @@ if __name__ == "__main__":
     test_jacobian_prismatic()
     test_jacobian_at_different_loc_than_ee()
     test_comparison_to_autograd()
+    test_mjcf_jacobian()
