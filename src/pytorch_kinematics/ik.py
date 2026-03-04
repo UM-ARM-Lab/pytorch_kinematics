@@ -61,13 +61,17 @@ class IKSolution:
             # those that have converged are no longer remaining
             self.update_remaining_with_keep_mask(keep_mask)
 
-        self.solutions = qq
-        self.err_pos = err_pos
-        self.err_rot = err_rot
-        self.converged_pos = converged_pos
-        self.converged_rot = converged_rot
-        self.converged = converged
-        self.converged_any = converged_any
+        # sticky convergence: only overwrite retries that haven't already converged
+        # this prevents overwriting a good solution if the solver overshoots on the next step
+        already_converged = self.converged
+        update_mask = ~already_converged
+        self.solutions[update_mask] = qq[update_mask]
+        self.err_pos[update_mask] = err_pos[update_mask]
+        self.err_rot[update_mask] = err_rot[update_mask]
+        self.converged_pos = self.converged_pos | converged_pos
+        self.converged_rot = self.converged_rot | converged_rot
+        self.converged = self.converged | converged
+        self.converged_any = self.converged_any | converged_any
 
         return converged_any
 
@@ -347,35 +351,37 @@ class PseudoInverseIK(InverseKinematics):
                     q = q + lr * dq
 
             with torch.no_grad():
-                self.err_all = dx.squeeze()
+                # recompute error at the new q so convergence check matches the stored solution
+                m_new = self.chain.forward_kinematics(q).get_matrix()
+                m_new = m_new.view(-1, self.num_retries, 4, 4)
+                dx_new, pos_diff, rot_diff = delta_pose(m_new, target_pos, target_wxyz)
+                self.err_all = dx_new.squeeze()
                 self.err = self.err_all.norm(dim=-1)
                 sol.update(q, self.err_all, use_keep_mask=self.early_stopping_any_converged)
 
                 if self.early_stopping_no_improvement is not None:
                     if self.no_improve_counter is None:
                         self.no_improve_counter = torch.zeros_like(self.err)
+                        self.err_min = self.err.clone()
                     else:
-                        if self.err_min is None:
-                            self.err_min = self.err.clone()
-                        else:
-                            improved = self.err < self.err_min
-                            self.err_min[improved] = self.err[improved]
+                        improved = self.err < self.err_min
+                        self.err_min[improved] = self.err[improved]
 
-                            self.no_improve_counter[improved] = 0
-                            self.no_improve_counter[~improved] += 1
+                        self.no_improve_counter[improved] = 0
+                        self.no_improve_counter[~improved] += 1
 
-                            # those that haven't improved
-                            could_improve = self.no_improve_counter <= self.early_stopping_no_improvement_patience
-                            # consider problems, and only throw out those whose all retries cannot be improved
-                            could_improve = could_improve.reshape(-1, self.num_retries)
-                            if self.early_stopping_no_improvement == "all":
-                                could_improve = could_improve.all(dim=1)
-                            elif self.early_stopping_no_improvement == "any":
-                                could_improve = could_improve.any(dim=1)
-                            elif isinstance(self.early_stopping_no_improvement, float):
-                                ratio_improved = could_improve.sum(dim=1) / self.num_retries
-                                could_improve = ratio_improved > self.early_stopping_no_improvement
-                            sol.update_remaining_with_keep_mask(could_improve)
+                        # those that haven't improved
+                        could_improve = self.no_improve_counter <= self.early_stopping_no_improvement_patience
+                        # consider problems, and only throw out those whose all retries cannot be improved
+                        could_improve = could_improve.reshape(-1, self.num_retries)
+                        if self.early_stopping_no_improvement == "all":
+                            could_improve = could_improve.all(dim=1)
+                        elif self.early_stopping_no_improvement == "any":
+                            could_improve = could_improve.any(dim=1)
+                        elif isinstance(self.early_stopping_no_improvement, float):
+                            ratio_improved = could_improve.sum(dim=1) / self.num_retries
+                            could_improve = ratio_improved > self.early_stopping_no_improvement
+                        sol.update_remaining_with_keep_mask(could_improve)
 
                 if self.debug:
                     pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
@@ -405,8 +411,6 @@ class PseudoInverseIK(InverseKinematics):
             ax[1].set_ylabel("rotation error")
             plt.show()
 
-        if i == self.max_iterations - 1:
-            sol.update(q, self.err_all, use_keep_mask=False)
         return sol
 
 
