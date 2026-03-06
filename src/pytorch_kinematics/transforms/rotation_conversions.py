@@ -95,10 +95,7 @@ def _sqrt_positive_part(x):
     Returns torch.sqrt(torch.max(0, x))
     but with a zero subgradient where x is 0.
     """
-    ret = torch.zeros_like(x)
-    positive_mask = x > 0
-    ret[positive_mask] = torch.sqrt(x[positive_mask])
-    return ret
+    return torch.sqrt(torch.clamp(x, min=0.0))
 
 
 def matrix_to_quaternion(matrix):
@@ -144,15 +141,17 @@ def matrix_to_quaternion(matrix):
 
     # We floor here at 0.1 but the exact level is not important; if q_abs is small,
     # the candidate won't be picked.
-    flr = torch.tensor(0.1).to(dtype=q_abs.dtype, device=q_abs.device)
+    flr = torch.full((), 0.1, dtype=q_abs.dtype, device=q_abs.device)
     quat_candidates = quat_by_rijk / (2.0 * q_abs[..., None].max(flr))
 
     # if not for numerical problems, quat_candidates[i] should be same (up to a sign),
     # forall i; we pick the best-conditioned one (with the largest denominator)
 
-    return quat_candidates[
-           F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :  # pyre-ignore[16]
-           ].reshape(batch_dim + (4,))
+    # Pick the best-conditioned quaternion for each batch element
+    best_idx = q_abs.argmax(dim=-1)  # (*batch_dim,)
+    # quat_candidates shape: (*batch_dim, 4, 4) -> gather along dim=-2
+    idx = best_idx.unsqueeze(-1).unsqueeze(-1).expand(*batch_dim, 1, 4)
+    return quat_candidates.gather(-2, idx).squeeze(-2)
 
 
 def _axis_angle_rotation(axis: str, angle):
@@ -577,16 +576,11 @@ def axis_angle_to_quaternion(axis_angle):
     angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
     half_angles = 0.5 * angles
     eps = 1e-6
-    small_angles = angles.abs() < eps
-    sin_half_angles_over_angles = torch.empty_like(angles)
-    sin_half_angles_over_angles[~small_angles] = (
-            torch.sin(half_angles[~small_angles]) / angles[~small_angles]
-    )
     # for x small, sin(x/2) is about x/2 - (x/2)^3/6
     # so sin(x/2)/x is about 1/2 - (x*x)/48
-    sin_half_angles_over_angles[small_angles] = (
-            0.5 - (angles[small_angles] * angles[small_angles]) / 48
-    )
+    small_theta = 0.5 - (angles * angles) / 48
+    large_theta = torch.sin(half_angles) / angles
+    sin_half_angles_over_angles = torch.where(angles.abs() < eps, small_theta, large_theta)
     quaternions = torch.cat(
         [torch.cos(half_angles), axis_angle * sin_half_angles_over_angles], dim=-1
     )
@@ -611,16 +605,11 @@ def quaternion_to_axis_angle(quaternions):
     half_angles = torch.atan2(norms, quaternions[..., :1])
     angles = 2 * half_angles
     eps = 1e-6
-    small_angles = angles.abs() < eps
-    sin_half_angles_over_angles = torch.empty_like(angles)
-    sin_half_angles_over_angles[~small_angles] = (
-            torch.sin(half_angles[~small_angles]) / angles[~small_angles]
-    )
     # for x small, sin(x/2) is about x/2 - (x/2)^3/6
     # so sin(x/2)/x is about 1/2 - (x*x)/48
-    sin_half_angles_over_angles[small_angles] = (
-            0.5 - (angles[small_angles] * angles[small_angles]) / 48
-    )
+    small_theta = 0.5 - (angles * angles) / 48
+    large_theta = torch.sin(half_angles) / angles
+    sin_half_angles_over_angles = torch.where(angles.abs() < eps, small_theta, large_theta)
     return quaternions[..., 1:] / sin_half_angles_over_angles
 
 

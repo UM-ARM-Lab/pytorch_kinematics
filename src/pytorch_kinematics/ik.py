@@ -34,6 +34,45 @@ def _compute_dq_kernel(J: torch.Tensor, dx: torch.Tensor, reg_matrix: torch.Tens
     return J.transpose(1, 2) @ A
 
 
+def _ik_step_kernel(m_flat: torch.Tensor, target_pos: torch.Tensor, target_wxyz: torch.Tensor,
+                    J: torch.Tensor, reg_matrix: torch.Tensor, num_retries: int):
+    """
+    Fused IK step: delta_pose + damped least squares. Compatible with torch.compile(fullgraph=True).
+
+    Args:
+        m_flat: End-effector poses (N*M, 4, 4) where N=num_problems, M=num_retries
+        target_pos: Target positions (N, 3)
+        target_wxyz: Target orientations as wxyz quaternions (N, 4)
+        J: Jacobian matrix (N*M, 6, DOF)
+        reg_matrix: Regularization matrix (6, 6)
+        num_retries: Number of retries per problem (M)
+
+    Returns:
+        dq: Joint velocity (N*M, DOF, 1)
+        dx: Pose error (N*M, 6, 1)
+    """
+    NM = m_flat.shape[0]
+    M = num_retries
+    N = NM // M
+    m = m_flat.view(N, M, 4, 4)
+
+    # delta_pose
+    pos_diff = (target_pos.unsqueeze(1) - m[:, :, :3, 3]).view(-1, 3, 1)
+    cur_wxyz = rotation_conversions.matrix_to_quaternion(m[:, :, :3, :3])
+    diff_wxyz = rotation_conversions.quaternion_multiply(
+        target_wxyz.unsqueeze(1),
+        rotation_conversions.quaternion_invert(cur_wxyz))
+    diff_axis_angle = rotation_conversions.quaternion_to_axis_angle(diff_wxyz)
+    rot_diff = diff_axis_angle.view(-1, 3, 1)
+    dx = torch.cat((pos_diff, rot_diff), dim=1)
+
+    # DLS
+    tmpA = J @ J.transpose(1, 2) + reg_matrix
+    A = torch.linalg.solve(tmpA, dx)
+    dq = J.transpose(1, 2) @ A
+    return dq, dx
+
+
 class IKSolution:
     def __init__(self, dof, num_problems, num_retries, pos_tolerance, rot_tolerance, device="cpu"):
         self.iterations = 0
@@ -330,12 +369,19 @@ class PseudoInverseIK(InverseKinematics):
         # Pre-compute regularization matrix once
         self._reg_matrix = self.regularlization * torch.eye(6, device=self.device, dtype=self.dtype)
 
-        # Set up compute_dq kernel (potentially compiled)
+        # Set up compute kernels (potentially compiled)
         self._use_compile = use_compile and _TORCH_COMPILE_AVAILABLE
         if self._use_compile:
             self._compute_dq_fn = torch.compile(_compute_dq_kernel)
+            self._ik_step_fn = torch.compile(_ik_step_kernel)
+            self._jacobian_fn = torch.compile(self.chain.jacobian_tensor)
+            self._fk_fn = torch.compile(self.chain.forward_kinematics_tensor)
         else:
             self._compute_dq_fn = _compute_dq_kernel
+            self._ik_step_fn = _ik_step_kernel
+            self._jacobian_fn = self.chain.jacobian_tensor
+            self._fk_fn = self.chain.forward_kinematics_tensor
+        self._eef_frame_idx = self.chain._serial_eef_frame_idx
 
     def compute_dq(self, J, dx):
         """Compute joint velocity using damped least squares."""
@@ -376,26 +422,19 @@ class PseudoInverseIK(InverseKinematics):
             q.requires_grad = True
             optimizer = torch.optim.Adam([q], lr=self.lr)
 
-        # Pre-allocate delta pose buffer to reduce memory allocation in loop
-        batch_size = M * self.num_retries
-        dx_buffer = torch.empty((batch_size, 6, 1), device=self.device, dtype=self.dtype)
-
         for i in range(self.max_iterations):
             with torch.no_grad():
                 # early termination if we're out of problems to solve
                 if not sol.remaining.any():
                     break
                 sol.iterations += 1
-                # compute forward kinematics
-                # N x 6 x DOF
-                J, m = self.chain.jacobian(q, ret_eef_pose=True)
-                # unflatten to broadcast with goal
-                m = m.view(-1, self.num_retries, 4, 4)
-                dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_wxyz, out=dx_buffer)
-
-                # damped least squares method
-                # lambda^2*I (lambda^2 is regularization)
-                dq = self.compute_dq(J, dx)
+                # compute Jacobian and end-effector pose via tensor API
+                J = self._jacobian_fn(q)
+                all_tf = self._fk_fn(q)
+                m = all_tf[self._eef_frame_idx]  # (N*M, 4, 4)
+                # fused delta_pose + DLS step
+                dq, dx = self._ik_step_fn(m, target_pos, target_wxyz, J,
+                                          self._reg_matrix, self.num_retries)
                 dq = dq.squeeze(2)
 
             improvement = None
@@ -416,7 +455,8 @@ class PseudoInverseIK(InverseKinematics):
 
             with torch.no_grad():
                 # recompute error at the new q so convergence check matches the stored solution
-                m_new = self.chain.forward_kinematics(q).get_matrix()
+                all_tf_new = self._fk_fn(q)
+                m_new = all_tf_new[self._eef_frame_idx]  # (N*M, 4, 4)
                 m_new = m_new.view(-1, self.num_retries, 4, 4)
                 dx_new, pos_diff, rot_diff = delta_pose(m_new, target_pos, target_wxyz)
                 self.err_all = dx_new.squeeze()
@@ -518,8 +558,9 @@ class PseudoInverseIK(InverseKinematics):
 
         # Step 3: clamped refinement iterations to recover from any error introduced by clamping
         for _ in range(self.num_limit_refinement_iterations):
-            J, m = self.chain.jacobian(q, ret_eef_pose=True)
-            m = m.view(-1, self.num_retries, 4, 4)
+            J = self._jacobian_fn(q)
+            all_tf = self._fk_fn(q)
+            m = all_tf[self._eef_frame_idx].view(-1, self.num_retries, 4, 4)
             dx, _, _ = delta_pose(m, target_pos, target_wxyz)
             dq = self.compute_dq(J, dx).squeeze(2)
             q = q + self.lr * dq
@@ -532,7 +573,8 @@ class PseudoInverseIK(InverseKinematics):
         sol.converged_rot[:] = False
 
         # Recompute error and update solution
-        m_new = self.chain.forward_kinematics(q).get_matrix()
+        all_tf_new = self._fk_fn(q)
+        m_new = all_tf_new[self._eef_frame_idx]  # (N*M, 4, 4)
         m_new = m_new.view(-1, self.num_retries, 4, 4)
         dx_new, _, _ = delta_pose(m_new, target_pos, target_wxyz)
         sol.update(q, dx_new.squeeze(), use_keep_mask=False)

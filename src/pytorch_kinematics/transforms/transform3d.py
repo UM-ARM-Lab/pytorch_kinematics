@@ -766,6 +766,8 @@ def _check_valid_rotation_matrix(R, tol: float = 1e-7):
 
     Emits a warning if R is an invalid rotation matrix.
     """
+    if torch.compiler.is_compiling():
+        return
     N = R.shape[0]
     eye = torch.eye(3, dtype=R.dtype, device=R.device)
     eye = eye.view(1, 3, 3).expand(N, -1, -1)

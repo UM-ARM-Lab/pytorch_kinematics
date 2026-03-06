@@ -222,6 +222,20 @@ GPU speedups from CUDA graph capture provide additional gains at large batch siz
 The standard `forward_kinematics` method (returning `Dict[str, Transform3d]`) also benefits from the
 refactored internals without any code changes. It is 2-6x faster at small batch sizes compared to v0.7.
 
+The rotation conversion functions (`matrix_to_quaternion`, `quaternion_to_axis_angle`,
+`axis_angle_to_quaternion`, etc.) are also compatible with `torch.compile(fullgraph=True)` and can
+be compiled standalone or as part of a larger compiled graph:
+
+```python
+import torch
+import pytorch_kinematics as pk
+
+# compile a rotation conversion function
+compiled_m2q = torch.compile(pk.matrix_to_quaternion, fullgraph=True)
+R = torch.randn(100, 3, 3)
+q = compiled_m2q(R)
+```
+
 ## Jacobian calculation
 The Jacobian (in the kinematics context) is a matrix describing how the end effector changes with respect to joint value changes
 (where ![dx](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D) is the twist, or stacked velocity and angular velocity):
@@ -342,6 +356,34 @@ print(sol.converged)
 print(sol.err_pos)
 print(sol.err_rot)
 ```
+
+### Compiled IK
+
+For workloads that solve IK repeatedly (e.g. in a planning loop), pass `use_compile=True` to compile the
+FK, Jacobian, and damped least squares kernels inside the IK loop with `torch.compile`.
+The outer IK loop with its data-dependent convergence checks remains in eager mode.
+
+```python
+ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10,
+                         joint_limits=lim.T,
+                         early_stopping_any_converged=True,
+                         early_stopping_no_improvement="all",
+                         lr=0.2,
+                         use_compile=True)  # compile inner kernels
+
+# first solve() incurs a one-time compilation cost; subsequent calls are faster
+sol = ik.solve(goal_in_rob_frame_tf)
+```
+
+Typical speedups on CPU (Kuka IIWA 7-DOF, 30 iterations):
+
+| Retries | Eager (v0.7) | Eager (new) | Compiled | Speedup (compiled vs v0.7) |
+|---:|---:|---:|---:|---:|
+| 10 | 25.6 ms | 23.3 ms | 11.8 ms | **2.2x** |
+| 50 | 31.5 ms | 29.0 ms | 15.8 ms | **2.0x** |
+
+Note: `use_compile=True` requires PyTorch 2.0+. You cannot wrap `ik.solve()` directly with
+`torch.compile` due to data-dependent control flow in the outer loop — use this flag instead.
 
 ## SDF Queries
 See [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric) for the latest details, some instructions are pasted here:
