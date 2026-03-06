@@ -303,6 +303,55 @@ def test_ur5_fk():
     assert torch.allclose(ik_ret, ret.get_matrix(), atol=1e-6)
 
 
+def test_compile_fk():
+    """Test that _forward_kinematics_tensor works with torch.compile(fullgraph=True)"""
+    if not hasattr(torch, 'compile'):
+        return  # skip on PyTorch < 2.0
+
+    # Test with URDF (revolute joints only)
+    chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read())
+    chain = chain.to(dtype=torch.float64)
+
+    th = torch.randn(8, chain.n_joints, dtype=torch.float64)
+
+    eager_result = chain._forward_kinematics_tensor(th)
+    compiled_fn = torch.compile(chain._forward_kinematics_tensor, fullgraph=True)
+    compiled_result = compiled_fn(th)
+    assert torch.allclose(eager_result, compiled_result, atol=1e-10)
+
+    # Test with SDF (has prismatic and fixed joints)
+    chain2 = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
+    chain2 = chain2.to(dtype=torch.float64)
+    th2 = torch.randn(8, chain2.n_joints, dtype=torch.float64)
+
+    eager2 = chain2._forward_kinematics_tensor(th2)
+    compiled_fn2 = torch.compile(chain2._forward_kinematics_tensor, fullgraph=True)
+    compiled2 = compiled_fn2(th2)
+    assert torch.allclose(eager2, compiled2, atol=1e-10)
+
+    # Test with MJCF (branching tree)
+    chain3 = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read())
+    chain3 = chain3.to(dtype=torch.float64)
+    th3 = torch.randn(8, chain3.n_joints, dtype=torch.float64)
+
+    eager3 = chain3._forward_kinematics_tensor(th3)
+    compiled_fn3 = torch.compile(chain3._forward_kinematics_tensor, fullgraph=True)
+    compiled3 = compiled_fn3(th3)
+    assert torch.allclose(eager3, compiled3, atol=1e-10)
+
+    # Test gradients through compiled FK
+    th_grad = torch.randn(4, chain.n_joints, dtype=torch.float64, requires_grad=True)
+    th_grad2 = th_grad.detach().clone().requires_grad_(True)
+
+    eager_out = chain._forward_kinematics_tensor(th_grad)
+    eager_out.sum().backward()
+
+    compiled_out = compiled_fn(th_grad2)
+    compiled_out.sum().backward()
+
+    assert torch.allclose(th_grad.grad, th_grad2.grad, atol=1e-10)
+
+
 if __name__ == "__main__":
     test_fk_partial_batched()
     test_fk_partial_batched_dict()
