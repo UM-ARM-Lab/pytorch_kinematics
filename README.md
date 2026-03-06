@@ -225,7 +225,7 @@ refactored internals without any code changes. It is 2-6x faster at small batch 
 ## Jacobian calculation
 The Jacobian (in the kinematics context) is a matrix describing how the end effector changes with respect to joint value changes
 (where ![dx](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D) is the twist, or stacked velocity and angular velocity):
-![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D) 
+![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D)
 
 For `SerialChain` we provide a differentiable and parallelizable method for computing the Jacobian with respect to the base frame.
 ```python
@@ -260,6 +260,38 @@ J = chain.jacobian(th)
 loc = torch.rand(N, 3, dtype=dtype, device=d)
 J = chain.jacobian(th, locations=loc)
 ```
+
+Like FK, the Jacobian has a `torch.compile`-compatible variant `jacobian_tensor`:
+
+```python
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+
+# compile the Jacobian kernel (one-time cost)
+compiled_jac = torch.compile(chain.jacobian_tensor, fullgraph=True)
+
+# input: (B, n_joints) tensor; output: (B, 6, n_joints) Jacobian
+th = torch.randn(100, 7)
+J = compiled_jac(th)
+```
+
+For maximum performance in tight loops (e.g. IK), pass `mode='max-autotune'` to `torch.compile`
+for additional kernel tuning at the cost of longer compilation.
+
+Typical speedups on CPU (Kuka IIWA 7-DOF, vs the old v0.7 `calc_jacobian`):
+
+| Batch size | Old `calc_jacobian` | New `jacobian` (eager) | Compiled `jacobian_tensor` | Speedup (compiled vs old) |
+|---:|---:|---:|---:|---:|
+| 1 | 0.63 ms | 0.12 ms | 0.03 ms | **21x** |
+| 10 | 0.79 ms | 0.15 ms | 0.05 ms | **15x** |
+| 100 | 0.75 ms | 0.30 ms | 0.09 ms | **8x** |
+| 1,000 | 1.67 ms | 1.23 ms | 0.53 ms | **3x** |
+| 10,000 | 7.93 ms | 7.01 ms | 4.91 ms | **1.6x** |
+| 100,000 | 59.42 ms | 64.58 ms | 46.46 ms | **1.3x** |
+
+At small-to-medium batch sizes (the typical IK regime), the new eager implementation is 2-5x faster
+due to vectorized computation replacing the per-frame Python loop.
+`torch.compile` provides an additional 2-4x on top of that, and is faster than the old implementation
+at every batch size.
 
 The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
 for a survey of ways to do so. Note that IK may be better performed through other means (but doing it through the Jacobian can give an end-to-end differentiable method).

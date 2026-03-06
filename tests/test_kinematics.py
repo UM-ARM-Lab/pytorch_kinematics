@@ -303,6 +303,46 @@ def test_ur5_fk():
     assert torch.allclose(ik_ret, ret.get_matrix(), atol=1e-6)
 
 
+def test_compile_jacobian():
+    """Test that jacobian_tensor works with torch.compile(fullgraph=True)"""
+    if not hasattr(torch, 'compile'):
+        return  # skip on PyTorch < 2.0
+
+    # Test with URDF (revolute joints only) - Kuka
+    chain = pk.build_serial_chain_from_urdf(
+        open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
+    chain = chain.to(dtype=torch.float64)
+    th = torch.randn(8, 7, dtype=torch.float64)
+
+    eager_J = chain.jacobian_tensor(th)
+    compiled_fn = torch.compile(chain.jacobian_tensor, fullgraph=True)
+    compiled_J = compiled_fn(th)
+    assert torch.allclose(eager_J, compiled_J, atol=1e-10)
+
+    # Test with prismatic joints (simple_arm via SDF)
+    chain2 = pk.build_serial_chain_from_sdf(
+        open(os.path.join(TEST_DIR, "simple_arm.sdf")).read(), "arm_wrist_roll")
+    chain2 = chain2.to(dtype=torch.float64)
+    th2 = torch.randn(8, 4, dtype=torch.float64)
+
+    eager_J2 = chain2.jacobian_tensor(th2)
+    compiled_fn2 = torch.compile(chain2.jacobian_tensor, fullgraph=True)
+    compiled_J2 = compiled_fn2(th2)
+    assert torch.allclose(eager_J2, compiled_J2, atol=1e-10)
+
+    # Test gradients through compiled Jacobian
+    th_grad = torch.randn(4, 7, dtype=torch.float64, requires_grad=True)
+    th_grad2 = th_grad.detach().clone().requires_grad_(True)
+
+    eager_out = chain.jacobian_tensor(th_grad)
+    eager_out.sum().backward()
+
+    compiled_out = compiled_fn(th_grad2)
+    compiled_out.sum().backward()
+
+    assert torch.allclose(th_grad.grad, th_grad2.grad, atol=1e-10)
+
+
 def test_compile_fk():
     """Test that forward_kinematics_tensor works with torch.compile(fullgraph=True)"""
     if not hasattr(torch, 'compile'):
