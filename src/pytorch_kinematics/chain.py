@@ -319,7 +319,7 @@ class Chain:
             print(tree)
         return tree
 
-    def _forward_kinematics_tensor(self, th):
+    def forward_kinematics_tensor(self, th):
         """
         Compilable FK kernel. Computes transforms for all frames using level-by-level BFS traversal.
         Compatible with torch.compile(fullgraph=True).
@@ -393,7 +393,7 @@ class Chain:
         th = self.ensure_tensor(th)
         th = torch.atleast_2d(th)
 
-        all_transforms = self._forward_kinematics_tensor(th)
+        all_transforms = self.forward_kinematics_tensor(th)
 
         return {self.idx_to_frame[fi.item()]: tf.Transform3d(matrix=all_transforms[fi])
                 for fi in frame_indices}

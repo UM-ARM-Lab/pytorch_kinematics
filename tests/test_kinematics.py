@@ -304,7 +304,7 @@ def test_ur5_fk():
 
 
 def test_compile_fk():
-    """Test that _forward_kinematics_tensor works with torch.compile(fullgraph=True)"""
+    """Test that forward_kinematics_tensor works with torch.compile(fullgraph=True)"""
     if not hasattr(torch, 'compile'):
         return  # skip on PyTorch < 2.0
 
@@ -314,8 +314,8 @@ def test_compile_fk():
 
     th = torch.randn(8, chain.n_joints, dtype=torch.float64)
 
-    eager_result = chain._forward_kinematics_tensor(th)
-    compiled_fn = torch.compile(chain._forward_kinematics_tensor, fullgraph=True)
+    eager_result = chain.forward_kinematics_tensor(th)
+    compiled_fn = torch.compile(chain.forward_kinematics_tensor, fullgraph=True)
     compiled_result = compiled_fn(th)
     assert torch.allclose(eager_result, compiled_result, atol=1e-10)
 
@@ -324,8 +324,8 @@ def test_compile_fk():
     chain2 = chain2.to(dtype=torch.float64)
     th2 = torch.randn(8, chain2.n_joints, dtype=torch.float64)
 
-    eager2 = chain2._forward_kinematics_tensor(th2)
-    compiled_fn2 = torch.compile(chain2._forward_kinematics_tensor, fullgraph=True)
+    eager2 = chain2.forward_kinematics_tensor(th2)
+    compiled_fn2 = torch.compile(chain2.forward_kinematics_tensor, fullgraph=True)
     compiled2 = compiled_fn2(th2)
     assert torch.allclose(eager2, compiled2, atol=1e-10)
 
@@ -334,8 +334,8 @@ def test_compile_fk():
     chain3 = chain3.to(dtype=torch.float64)
     th3 = torch.randn(8, chain3.n_joints, dtype=torch.float64)
 
-    eager3 = chain3._forward_kinematics_tensor(th3)
-    compiled_fn3 = torch.compile(chain3._forward_kinematics_tensor, fullgraph=True)
+    eager3 = chain3.forward_kinematics_tensor(th3)
+    compiled_fn3 = torch.compile(chain3.forward_kinematics_tensor, fullgraph=True)
     compiled3 = compiled_fn3(th3)
     assert torch.allclose(eager3, compiled3, atol=1e-10)
 
@@ -343,7 +343,7 @@ def test_compile_fk():
     th_grad = torch.randn(4, chain.n_joints, dtype=torch.float64, requires_grad=True)
     th_grad2 = th_grad.detach().clone().requires_grad_(True)
 
-    eager_out = chain._forward_kinematics_tensor(th_grad)
+    eager_out = chain.forward_kinematics_tensor(th_grad)
     eager_out.sum().backward()
 
     compiled_out = compiled_fn(th_grad2)
