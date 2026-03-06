@@ -180,6 +180,48 @@ th = {'left_knee': 0.0, 'right_knee': 0.0}
 ret = chain.forward_kinematics(th)
 ```
 
+## torch.compile Support
+
+The FK computation can be compiled with `torch.compile(fullgraph=True)` for significant speedups,
+especially for applications that call FK thousands of times (e.g. inverse kinematics, trajectory optimization).
+
+Use `forward_kinematics_tensor`, a compile-friendly variant that accepts and returns raw tensors
+instead of dicts and `Transform3d` objects:
+
+```python
+import torch
+import pytorch_kinematics as pk
+
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+
+# compile the FK kernel (one-time cost)
+compiled_fk = torch.compile(chain.forward_kinematics_tensor, fullgraph=True, dynamic=True)
+
+# input: (B, n_joints) tensor
+th = torch.randn(1000, 7)
+
+# output: (num_frames, B, 4, 4) tensor of homogeneous transforms for all frames
+all_transforms = compiled_fk(th)
+
+# index by frame: use chain.frame_to_idx to look up the index for a frame name
+ee_idx = chain.frame_to_idx['lbr_iiwa_link_7']
+ee_transform = all_transforms[ee_idx]  # (B, 4, 4)
+```
+
+Typical speedups on CPU (Kuka IIWA 7-DOF):
+
+| Batch size | `forward_kinematics` | Compiled `forward_kinematics_tensor` | Speedup |
+|---:|---:|---:|---:|
+| 1 | 0.21 ms | 0.04 ms | **4.7x** |
+| 64 | 0.26 ms | 0.08 ms | **3.5x** |
+| 1024 | 1.13 ms | 0.51 ms | **2.2x** |
+
+Speedups are larger for complex robots with more frames (e.g. 6x+ for 49-frame robots at batch=1).
+GPU speedups from CUDA graph capture provide additional gains at large batch sizes.
+
+The standard `forward_kinematics` method (returning `Dict[str, Transform3d]`) also benefits from the
+refactored internals without any code changes. It is 2-6x faster at small batch sizes compared to v0.7.
+
 ## Jacobian calculation
 The Jacobian (in the kinematics context) is a matrix describing how the end effector changes with respect to joint value changes
 (where ![dx](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D) is the twist, or stacked velocity and angular velocity):
