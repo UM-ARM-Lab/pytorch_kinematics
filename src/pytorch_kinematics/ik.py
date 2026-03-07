@@ -429,10 +429,8 @@ class PseudoInverseIK(InverseKinematics):
                 if not sol.remaining.any():
                     break
                 sol.iterations += 1
-                # compute Jacobian and end-effector pose via tensor API
-                J = self._jacobian_fn(q)
-                all_tf = self._fk_fn(q)
-                m = all_tf[self._eef_frame_idx]  # (N*M, 4, 4)
+                # compute Jacobian and end-effector pose in one FK pass
+                J, m = self._jacobian_fn(q, True)
                 # fused delta_pose + DLS step
                 dq, dx = self._ik_step_fn(m, target_pos, target_wxyz, J,
                                           self._reg_matrix, self.num_retries)
@@ -548,7 +546,6 @@ class PseudoInverseIK(InverseKinematics):
         2. Clamp any remaining violations and run refinement iterations to recover convergence.
         3. Update the solution with the refined joint values.
         """
-        M = target_pos.shape[0]
         q = sol.solutions.reshape(-1, self.dof)
 
         # Step 1: wrap revolute joints by 2*pi
@@ -559,9 +556,8 @@ class PseudoInverseIK(InverseKinematics):
 
         # Step 3: clamped refinement iterations to recover from any error introduced by clamping
         for _ in range(self.num_limit_refinement_iterations):
-            J = self._jacobian_fn(q)
-            all_tf = self._fk_fn(q)
-            m = all_tf[self._eef_frame_idx].view(-1, self.num_retries, 4, 4)
+            J, m_flat = self._jacobian_fn(q, True)
+            m = m_flat.view(-1, self.num_retries, 4, 4)
             dx, _, _ = delta_pose(m, target_pos, target_wxyz)
             dq = self.compute_dq(J, dx).squeeze(2)
             q = q + self.lr * dq

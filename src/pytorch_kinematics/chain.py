@@ -558,15 +558,16 @@ class SerialChain(Chain):
         self._serial_dof_types = self._serial_dof_types.to(device=self.device)
         return self
 
-    def jacobian_tensor(self, th):
+    def jacobian_tensor(self, th, ret_eef_pose=False):
         """
         Compilable Jacobian kernel. Computes the geometric Jacobian in the base frame.
         Compatible with torch.compile(fullgraph=True).
 
         Args:
             th: (B, n_joints) joint angle tensor
+            ret_eef_pose: if True, also return the (B, 4, 4) end-effector pose matrix.
 
-        Returns: (B, 6, ndof) geometric Jacobian
+        Returns: (B, 6, ndof) geometric Jacobian, and optionally (B, 4, 4) EEF pose
         """
         all_transforms = self.forward_kinematics_tensor(th)  # (num_frames, B, 4, 4)
 
@@ -597,6 +598,8 @@ class SerialChain(Chain):
         J = torch.cat([J_v, J_w], dim=2)  # (ndof, B, 6)
         J = J.permute(1, 2, 0)  # (B, 6, ndof)
 
+        if ret_eef_pose:
+            return J, all_transforms[self._serial_eef_frame_idx]
         return J
 
     def jacobian(self, th, locations=None, ret_eef_pose=False):
@@ -615,21 +618,15 @@ class SerialChain(Chain):
         if len(th.shape) <= 1:
             th = th.reshape(1, -1)
 
-        J = self.jacobian_tensor(th)
-
         if locations is None and not ret_eef_pose:
-            return J
-
-        # If we reach here, the caller requested a tool offset and/or the EEF pose.
-        # jacobian_tensor computes the Jacobian at the end-effector origin. A tool offset
-        # shifts that reference point, which changes only the linear-velocity rows for
-        # revolute joints (the cross-product term depends on p_ee). We correct by adding
-        # z_i x delta_p to each revolute joint's linear-velocity column.
-        # We also need FK transforms for the EEF pose when ret_eef_pose=True.
-        all_transforms = self.forward_kinematics_tensor(th)
-        T_ee = all_transforms[self._serial_eef_frame_idx]  # (B, 4, 4)
+            return self.jacobian_tensor(th)
 
         if locations is not None:
+            # Tool offset needs DOF frame transforms, so do a full FK pass separately.
+            all_transforms = self.forward_kinematics_tensor(th)
+            J = self.jacobian_tensor(th)
+            T_ee = all_transforms[self._serial_eef_frame_idx]  # (B, 4, 4)
+
             if isinstance(locations, tf.Transform3d):
                 tool = locations
             else:
@@ -655,10 +652,13 @@ class SerialChain(Chain):
             J[:, :3, :] = J[:, :3, :] + correction.permute(1, 2, 0)
 
             T_ee = T_ee_tool
+            if ret_eef_pose:
+                return J, T_ee
+            return J
 
-        if ret_eef_pose:
-            return J, T_ee
-        return J
+        # ret_eef_pose=True, no locations: get both from single FK pass
+        J, T_ee = self.jacobian_tensor(th, ret_eef_pose=True)
+        return J, T_ee
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
