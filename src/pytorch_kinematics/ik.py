@@ -74,7 +74,7 @@ def _ik_step_kernel(m_flat: torch.Tensor, target_pos: torch.Tensor, target_wxyz:
 
 
 class IKSolution:
-    def __init__(self, dof, num_problems, num_retries, pos_tolerance, rot_tolerance, device="cpu"):
+    def __init__(self, dof, num_problems, num_retries, pos_tolerance, rot_tolerance, device="cpu", dtype=None):
         self.iterations = 0
         self.device = device
         self.num_problems = num_problems
@@ -85,13 +85,13 @@ class IKSolution:
 
         M = num_problems
         # N x DOF tensor of joint angles; if converged[i] is False, then solutions[i] is undefined
-        self.solutions = torch.zeros((M, self.num_retries, self.dof), device=self.device)
+        self.solutions = torch.zeros((M, self.num_retries, self.dof), device=self.device, dtype=dtype)
         self.remaining = torch.ones(M, dtype=torch.bool, device=self.device)
 
         # M is the total number of problems
         # N is the total number of attempts
         # M x N tensor of position and rotation errors
-        self.err_pos = torch.zeros((M, self.num_retries), device=self.device)
+        self.err_pos = torch.zeros((M, self.num_retries), device=self.device, dtype=dtype)
         self.err_rot = torch.zeros_like(self.err_pos)
         # M x N boolean values indicating whether the solution converged (a solution could be found)
         self.converged_pos = torch.zeros((M, self.num_retries), dtype=torch.bool, device=self.device)
@@ -399,7 +399,8 @@ class PseudoInverseIK(InverseKinematics):
         # convert target rot to desired rotation about x,y,z
         target_wxyz = rotation_conversions.matrix_to_quaternion(target[:, :3, :3])
 
-        sol = IKSolution(self.dof, M, self.num_retries, self.pos_tolerance, self.rot_tolerance, device=self.device)
+        sol = IKSolution(self.dof, M, self.num_retries, self.pos_tolerance, self.rot_tolerance,
+                         device=self.device, dtype=self.dtype)
 
         q = self.initial_config
         if q.numel() == M * self.dof * self.num_retries:
