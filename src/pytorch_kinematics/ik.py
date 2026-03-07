@@ -429,37 +429,15 @@ class PseudoInverseIK(InverseKinematics):
                 if not sol.remaining.any():
                     break
                 sol.iterations += 1
-                # compute Jacobian and end-effector pose in one FK pass
+                # compute Jacobian, end-effector pose, and pose error in one FK pass
                 J, m = self._jacobian_fn(q, True)
-                # fused delta_pose + DLS step
                 dq, dx = self._ik_step_fn(m, target_pos, target_wxyz, J,
                                           self._reg_matrix, self.num_retries)
                 dq = dq.squeeze(2)
 
-            improvement = None
-            if optimizer is not None:
-                q.grad = -dq
-                optimizer.step()
-                optimizer.zero_grad()
-            else:
-                with torch.no_grad():
-                    if self.line_search is not None:
-                        lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_wxyz,
-                                                                          dx, problem_remaining=sol.remaining)
-                        lr = lr.unsqueeze(1)
-                    else:
-                        lr = self.lr
-                    # Use in-place addition to reduce memory allocation
-                    q = q.add(dq, alpha=lr) if isinstance(lr, float) else q.add(lr * dq)
-
-            with torch.no_grad():
-                # recompute error at the new q so convergence check matches the stored solution
-                all_tf_new = self._fk_fn(q)
-                m_new = all_tf_new[self._eef_frame_idx]  # (N*M, 4, 4)
-                m_new = m_new.view(-1, self.num_retries, 4, 4)
-                dx_new, pos_diff, rot_diff = delta_pose(m_new, target_pos, target_wxyz)
-                self.err_all = dx_new.squeeze()
-                self.err = self.err_all.norm(dim=-1)
+                # convergence check using error at current q (before stepping)
+                self.err_all = dx.squeeze(2)
+                self.err = self.err_all.reshape(-1, self.num_retries, 6).norm(dim=-1)
                 sol.update(q, self.err_all, use_keep_mask=self.early_stopping_any_converged)
 
                 if self.early_stopping_no_improvement is not None:
@@ -487,8 +465,35 @@ class PseudoInverseIK(InverseKinematics):
                         sol.update_remaining_with_keep_mask(could_improve)
 
                 if self.debug:
-                    pos_errors.append(pos_diff.reshape(-1, 3).norm(dim=1))
-                    rot_errors.append(rot_diff.reshape(-1, 3).norm(dim=1))
+                    pos_err = dx[:, :3, 0].reshape(-1, 3).norm(dim=1)
+                    rot_err = dx[:, 3:, 0].reshape(-1, 3).norm(dim=1)
+                    pos_errors.append(pos_err)
+                    rot_errors.append(rot_err)
+
+            improvement = None
+            if optimizer is not None:
+                q.grad = -dq
+                optimizer.step()
+                optimizer.zero_grad()
+            else:
+                with torch.no_grad():
+                    if self.line_search is not None:
+                        lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_wxyz,
+                                                                          dx, problem_remaining=sol.remaining)
+                        lr = lr.unsqueeze(1)
+                    else:
+                        lr = self.lr
+                    # Use in-place addition to reduce memory allocation
+                    q = q.add(dq, alpha=lr) if isinstance(lr, float) else q.add(lr * dq)
+
+        # Final convergence check for the last stepped q
+        with torch.no_grad():
+            all_tf_final = self._fk_fn(q)
+            m_final = all_tf_final[self._eef_frame_idx].view(-1, self.num_retries, 4, 4)
+            dx_final, _, _ = delta_pose(m_final, target_pos, target_wxyz)
+            self.err_all = dx_final.squeeze()
+            self.err = self.err_all.reshape(-1, self.num_retries, 6).norm(dim=-1)
+            sol.update(q, self.err_all, use_keep_mask=self.early_stopping_any_converged)
 
         if self.debug:
             # errors
