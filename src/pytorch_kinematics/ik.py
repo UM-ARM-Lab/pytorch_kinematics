@@ -150,7 +150,8 @@ def gaussian_around_config(config: torch.Tensor, std: float) -> Callable[[int], 
 
 
 class LineSearch:
-    def do_line_search(self, chain, q, dq, target_pos, target_wxyz, initial_dx, problem_remaining=None):
+    def do_line_search(self, chain, q, dq, target_pos, target_wxyz, initial_dx, problem_remaining=None,
+                       fk_fn=None, eef_frame_idx=None):
         raise NotImplementedError()
 
 
@@ -161,7 +162,8 @@ class BacktrackingLineSearch(LineSearch):
         self.max_iterations = max_iterations
         self.sufficient_decrease = sufficient_decrease
 
-    def do_line_search(self, chain, q, dq, target_pos, target_wxyz, initial_dx, problem_remaining=None):
+    def do_line_search(self, chain, q, dq, target_pos, target_wxyz, initial_dx, problem_remaining=None,
+                       fk_fn=None, eef_frame_idx=None):
         N = target_pos.shape[0]
         NM = q.shape[0]
         M = NM // N
@@ -173,14 +175,19 @@ class BacktrackingLineSearch(LineSearch):
         # don't care about the ones that are no longer remaining
         remaining[~problem_remaining] = False
         remaining = remaining.reshape(-1)
+        improvement = torch.zeros(NM, device=q.device, dtype=q.dtype)
         for i in range(self.max_iterations):
             if not remaining.any():
                 break
             # try stepping with this learning rate
             q_new = q + lr.unsqueeze(1) * dq
-            # evaluate the error
-            m = chain.forward_kinematics(q_new).get_matrix()
-            m = m.view(-1, M, 4, 4)
+            # evaluate the error using tensor API when available
+            if fk_fn is not None and eef_frame_idx is not None:
+                all_tf = fk_fn(q_new)
+                m = all_tf[eef_frame_idx].view(-1, M, 4, 4)
+            else:
+                m = chain.forward_kinematics(q_new).get_matrix()
+                m = m.view(-1, M, 4, 4)
             dx, pos_diff, rot_diff = delta_pose(m, target_pos, target_wxyz)
             err_new = dx.squeeze().norm(dim=-1)
             # check if it's better
@@ -421,7 +428,7 @@ class PseudoInverseIK(InverseKinematics):
         optimizer = None
         if inspect.isclass(self.optimizer_method) and issubclass(self.optimizer_method, torch.optim.Optimizer):
             q.requires_grad = True
-            optimizer = torch.optim.Adam([q], lr=self.lr)
+            optimizer = self.optimizer_method([q], lr=self.lr)
 
         for i in range(self.max_iterations):
             with torch.no_grad():
@@ -479,7 +486,9 @@ class PseudoInverseIK(InverseKinematics):
                 with torch.no_grad():
                     if self.line_search is not None:
                         lr, improvement = self.line_search.do_line_search(self.chain, q, dq, target_pos, target_wxyz,
-                                                                          dx, problem_remaining=sol.remaining)
+                                                                          dx, problem_remaining=sol.remaining,
+                                                                          fk_fn=self._fk_fn,
+                                                                          eef_frame_idx=self._eef_frame_idx)
                         lr = lr.unsqueeze(1)
                     else:
                         lr = self.lr
