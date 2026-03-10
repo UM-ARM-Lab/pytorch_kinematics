@@ -558,7 +558,7 @@ class SerialChain(Chain):
         self._serial_dof_types = self._serial_dof_types.to(device=self.device)
         return self
 
-    def jacobian_tensor(self, th, ret_eef_pose=False):
+    def jacobian_tensor(self, th, ret_eef_pose=False, all_transforms=None):
         """
         Compilable Jacobian kernel. Computes the geometric Jacobian in the base frame.
         Compatible with torch.compile(fullgraph=True).
@@ -566,10 +566,13 @@ class SerialChain(Chain):
         Args:
             th: (B, n_joints) joint angle tensor
             ret_eef_pose: if True, also return the (B, 4, 4) end-effector pose matrix.
+            all_transforms: optional pre-computed (num_frames, B, 4, 4) FK transforms.
+                If provided, skips the internal FK computation. Useful to avoid redundant FK calls.
 
         Returns: (B, 6, ndof) geometric Jacobian, and optionally (B, 4, 4) EEF pose
         """
-        all_transforms = self.forward_kinematics_tensor(th)  # (num_frames, B, 4, 4)
+        if all_transforms is None:
+            all_transforms = self.forward_kinematics_tensor(th)  # (num_frames, B, 4, 4)
 
         p_ee = all_transforms[self._serial_eef_frame_idx, :, :3, 3]  # (B, 3)
 
@@ -622,9 +625,9 @@ class SerialChain(Chain):
             return self.jacobian_tensor(th)
 
         if locations is not None:
-            # Tool offset needs DOF frame transforms, so do a full FK pass separately.
+            # Compute FK once and pass to jacobian_tensor to avoid redundant FK
             all_transforms = self.forward_kinematics_tensor(th)
-            J = self.jacobian_tensor(th)
+            J = self.jacobian_tensor(th, all_transforms=all_transforms)
             T_ee = all_transforms[self._serial_eef_frame_idx]  # (B, 4, 4)
 
             if isinstance(locations, tf.Transform3d):
