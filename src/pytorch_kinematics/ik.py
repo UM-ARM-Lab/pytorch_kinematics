@@ -11,7 +11,8 @@ _TORCH_COMPILE_AVAILABLE = hasattr(torch, 'compile') and torch.__version__ >= '2
 
 
 def _ik_step_kernel(m_flat: torch.Tensor, target_pos: torch.Tensor, target_wxyz: torch.Tensor,
-                    J: torch.Tensor, reg_matrix: torch.Tensor, num_retries: int):
+                    J: torch.Tensor, reg_matrix: torch.Tensor, num_retries: int,
+                    lm_damping: float = 0.0, task_weight: Optional[torch.Tensor] = None):
     """
     Fused IK step: delta_pose + damped least squares. Compatible with torch.compile(fullgraph=True).
 
@@ -22,6 +23,9 @@ def _ik_step_kernel(m_flat: torch.Tensor, target_pos: torch.Tensor, target_wxyz:
         J: Jacobian matrix (N*M, 6, DOF)
         reg_matrix: Regularization matrix (6, 6)
         num_retries: Number of retries per problem (M)
+        lm_damping: Levenberg-Marquardt damping factor. When > 0, adds error-proportional
+            regularization: mu = lm_damping * ||dx||^2. Large errors get more damping (stable),
+            small errors get less (fast convergence). Inspired by mink's task-level LM damping.
 
     Returns:
         dq: Joint velocity (N*M, DOF, 1)
@@ -42,15 +46,30 @@ def _ik_step_kernel(m_flat: torch.Tensor, target_pos: torch.Tensor, target_wxyz:
     rot_diff = diff_axis_angle.view(-1, 3, 1)
     dx = torch.cat((pos_diff, rot_diff), dim=1)
 
-    # DLS: solve (JJ^T + lambda^2*I) A = dx, then dq = J^T A
-    tmpA = J @ J.transpose(1, 2) + reg_matrix
-    A = torch.linalg.solve(tmpA, dx)
-    dq = J.transpose(1, 2) @ A
+    # Apply per-coordinate weighting: W @ J, W @ dx
+    if task_weight is not None:
+        w = task_weight.reshape(1, 6, 1)  # (1, 6, 1)
+        J_w = w * J       # (NM, 6, DOF) weighted Jacobian
+        dx_w = w * dx     # (NM, 6, 1) weighted error
+    else:
+        J_w = J
+        dx_w = dx
+
+    # DLS with adaptive Levenberg-Marquardt damping:
+    # reg = lambda^2 * I + lm_damping * ||dx_w||^2 * I
+    if lm_damping > 0.0:
+        mu = lm_damping * (dx_w * dx_w).sum(dim=1, keepdim=True)  # (NM, 1, 1)
+        tmpA = J_w @ J_w.transpose(1, 2) + reg_matrix + mu * torch.eye(6, device=J.device, dtype=J.dtype)
+    else:
+        tmpA = J_w @ J_w.transpose(1, 2) + reg_matrix
+    A = torch.linalg.solve(tmpA, dx_w)
+    dq = J_w.transpose(1, 2) @ A
     return dq, dx
 
 
 def _ik_step_kernel_svd(m_flat: torch.Tensor, target_pos: torch.Tensor, target_wxyz: torch.Tensor,
-                        J: torch.Tensor, reg_matrix: torch.Tensor, num_retries: int):
+                        J: torch.Tensor, reg_matrix: torch.Tensor, num_retries: int,
+                        lm_damping: float = 0.0, task_weight: Optional[torch.Tensor] = None):
     """
     IK step using SVD-based damped least squares. Generally slower than the Cholesky-based
     kernel, but exposes singular values for selective damping if needed.
@@ -85,16 +104,28 @@ def _ik_step_kernel_svd(m_flat: torch.Tensor, target_pos: torch.Tensor, target_w
     rot_diff = diff_axis_angle.view(-1, 3, 1)
     dx = torch.cat((pos_diff, rot_diff), dim=1)
 
+    # Apply per-coordinate weighting
+    if task_weight is not None:
+        w = task_weight.reshape(1, 6, 1)
+        J_w = w * J
+        dx_w = w * dx
+    else:
+        J_w = J
+        dx_w = dx
+
     # SVD-based DLS
     regularization = reg_matrix[0, 0]  # scalar lambda^2
-    U, D, Vh = torch.linalg.svd(J)
+    if lm_damping > 0.0:
+        mu = lm_damping * (dx_w * dx_w).sum(dim=1, keepdim=True).squeeze(2)  # (NM, 1)
+        regularization = regularization + mu
+    U, D, Vh = torch.linalg.svd(J_w)
     m_sv = D.shape[1]
     denom = D ** 2 + regularization
     prod = D / denom
     inverted = torch.diag_embed(prod)
     Vh = Vh[:, :m_sv, :]
     total = Vh.transpose(1, 2) @ inverted @ U.transpose(1, 2)
-    dq = total @ dx
+    dq = total @ dx_w
     return dq, dx
 
 
@@ -239,12 +270,14 @@ class InverseKinematics:
                  config_sampling_method: Union[str, Callable[[int], torch.Tensor]] = "uniform",
                  max_iterations: int = 50,
                  lr: float = 1.0, line_search: Optional[LineSearch] = None,
-                 regularlization: float = 1e-9,
+                 regularlization: float = 1e-9, lm_damping: float = 0.1,
+                 position_weight: float = 1.0, orientation_weight: float = 1.0,
                  debug=False,
                  early_stopping_any_converged=False,
                  early_stopping_no_improvement="any", early_stopping_no_improvement_patience=2,
                  enforce_joint_limits: bool = True,
-                 num_limit_refinement_iterations: int = 10
+                 num_limit_refinement_iterations: int = 10,
+                 clamp_to_limits: bool = False
                  ):
         """
         :param serial_chain:
@@ -268,10 +301,19 @@ class InverseKinematics:
         So "all" is equivalent to ratio=0.999, and "any" is equivalent to ratio=0.001
         :param early_stopping_no_improvement_patience: number of consecutive iterations with no improvement before
         considering it no improvement
+        :param position_weight: weight for position error in DLS objective. Higher values prioritize
+        position accuracy. Default 1.0.
+        :param orientation_weight: weight for orientation error in DLS objective. Higher values prioritize
+        orientation accuracy. Default 1.0.
+        :param lm_damping: Levenberg-Marquardt damping factor. Adds error-proportional regularization
+        mu = lm_damping * ||error||^2 to the DLS solve, so large errors get more damping (stable) and
+        small errors get less (fast convergence). Default 0.1.
         :param enforce_joint_limits: whether to enforce joint limits on the solution. Uses the chain's joint limits
         (chain.low/chain.high). After solving, revolute joints are wrapped by multiples of 2*pi, then any remaining
         violations are resolved via clamped refinement iterations. Set to False to disable.
         :param num_limit_refinement_iterations: number of clamped IK refinement iterations for enforcing joint limits
+        :param clamp_to_limits: if True, clamp joint values to chain limits after each IK step (projected gradient).
+        Uses chain.low/chain.high. Requires the chain to have finite joint limits. Default False.
         """
         self.chain = serial_chain
         self.dtype = serial_chain.dtype
@@ -281,6 +323,7 @@ class InverseKinematics:
         self.debug = debug
         self.enforce_joint_limits = enforce_joint_limits
         self.num_limit_refinement_iterations = num_limit_refinement_iterations
+        self.clamp_to_limits = clamp_to_limits and torch.isfinite(serial_chain.low).any()
         # precompute which joints are revolute (for 2*pi wrapping)
         joints = self.chain.get_joints(exclude_fixed=True)
         self._revolute_mask = torch.tensor([j.joint_type == 'revolute' for j in joints],
@@ -292,7 +335,13 @@ class InverseKinematics:
         self.max_iterations = max_iterations
         self.lr = lr
         self.regularlization = regularlization
+        self.lm_damping = lm_damping
         self.line_search = line_search
+        # Per-coordinate weighting: scales rows of Jacobian and error
+        self._task_weight = torch.tensor(
+            [position_weight] * 3 + [orientation_weight] * 3,
+            device=self.device, dtype=self.dtype
+        )  # (6,)
 
         self.err = None
         self.err_all = None
@@ -447,7 +496,7 @@ class PseudoInverseIK(InverseKinematics):
                 # compute Jacobian, end-effector pose, and pose error in one FK pass
                 J, m = self._jacobian_fn(q, True)
                 dq, dx = self._ik_step_fn(m, target_pos, target_wxyz, J,
-                                          self._reg_matrix, self.num_retries)
+                                          self._reg_matrix, self.num_retries, self.lm_damping, self._task_weight)
                 dq = dq.squeeze(2)
 
                 # convergence check using error at current q (before stepping)
@@ -496,12 +545,14 @@ class PseudoInverseIK(InverseKinematics):
                 else:
                     lr = self.lr
                 q = q.add(dq, alpha=lr) if isinstance(lr, float) else q.add(lr * dq)
+                if self.clamp_to_limits:
+                    q = torch.clamp(q, self.chain.low, self.chain.high)
 
         # Final convergence check for the last stepped q
         with torch.no_grad():
             J_final, m_final = self._jacobian_fn(q, True)
             _, dx_final = self._ik_step_fn(m_final, target_pos, target_wxyz, J_final,
-                                           self._reg_matrix, self.num_retries)
+                                           self._reg_matrix, self.num_retries, self.lm_damping, self._task_weight)
             self.err_all = dx_final.squeeze(2)
             self.err = self.err_all.reshape(-1, self.num_retries, 6).norm(dim=-1)
             sol.update(q, self.err_all, use_keep_mask=self.early_stopping_any_converged)
@@ -574,7 +625,7 @@ class PseudoInverseIK(InverseKinematics):
         for _ in range(self.num_limit_refinement_iterations):
             J, m_flat = self._jacobian_fn(q, True)
             dq, _ = self._ik_step_fn(m_flat, target_pos, target_wxyz, J,
-                                     self._reg_matrix, self.num_retries)
+                                     self._reg_matrix, self.num_retries, self.lm_damping, self._task_weight)
             q = q + self.lr * dq.squeeze(2)
             q = torch.clamp(q, self.chain.low, self.chain.high)
 
@@ -587,7 +638,7 @@ class PseudoInverseIK(InverseKinematics):
         # Recompute error and update solution
         J_new, m_new = self._jacobian_fn(q, True)
         _, dx_new = self._ik_step_fn(m_new, target_pos, target_wxyz, J_new,
-                                     self._reg_matrix, self.num_retries)
+                                     self._reg_matrix, self.num_retries, self.lm_damping, self._task_weight)
         sol.update(q, dx_new.squeeze(2), use_keep_mask=False)
 
 
@@ -607,4 +658,3 @@ class PseudoInverseIKWithSVD(PseudoInverseIK):
             self._ik_step_fn = torch.compile(_ik_step_kernel_svd)
         else:
             self._ik_step_fn = _ik_step_kernel_svd
-
