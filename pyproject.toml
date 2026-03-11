@@ -1,6 +1,6 @@
 [project]
 name = "pytorch_kinematics"
-version = "0.8.0"
+version = "0.9.0"
 description = "Robot kinematics implemented in pytorch"
 readme = "README.md" # Optional
 
