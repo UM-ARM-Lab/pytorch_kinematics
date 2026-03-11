@@ -180,10 +180,66 @@ th = {'left_knee': 0.0, 'right_knee': 0.0}
 ret = chain.forward_kinematics(th)
 ```
 
+## torch.compile Support
+
+The FK computation can be compiled with `torch.compile(fullgraph=True)` for significant speedups,
+especially for applications that call FK thousands of times (e.g. inverse kinematics, trajectory optimization).
+
+Use `forward_kinematics_tensor`, a compile-friendly variant that accepts and returns raw tensors
+instead of dicts and `Transform3d` objects:
+
+```python
+import torch
+import pytorch_kinematics as pk
+
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+
+# compile the FK kernel (one-time cost)
+compiled_fk = torch.compile(chain.forward_kinematics_tensor, fullgraph=True, dynamic=True)
+
+# input: (B, n_joints) tensor
+th = torch.randn(1000, 7)
+
+# output: (num_frames, B, 4, 4) tensor of homogeneous transforms for all frames
+all_transforms = compiled_fk(th)
+
+# index by frame: use chain.frame_to_idx to look up the index for a frame name
+ee_idx = chain.frame_to_idx['lbr_iiwa_link_7']
+ee_transform = all_transforms[ee_idx]  # (B, 4, 4)
+```
+
+Typical speedups on CPU (Kuka IIWA 7-DOF):
+
+| Batch size | `forward_kinematics` | Compiled `forward_kinematics_tensor` | Speedup |
+|---:|---:|---:|---:|
+| 1 | 0.21 ms | 0.04 ms | **4.7x** |
+| 64 | 0.26 ms | 0.08 ms | **3.5x** |
+| 1024 | 1.13 ms | 0.51 ms | **2.2x** |
+
+Speedups are larger for complex robots with more frames (e.g. 6x+ for 49-frame robots at batch=1).
+GPU speedups from CUDA graph capture provide additional gains at large batch sizes.
+
+The standard `forward_kinematics` method (returning `Dict[str, Transform3d]`) also benefits from the
+refactored internals without any code changes. It is 2-6x faster at small batch sizes compared to v0.7.
+
+The rotation conversion functions (`matrix_to_quaternion`, `quaternion_to_axis_angle`,
+`axis_angle_to_quaternion`, etc.) are also compatible with `torch.compile(fullgraph=True)` and can
+be compiled standalone or as part of a larger compiled graph:
+
+```python
+import torch
+import pytorch_kinematics as pk
+
+# compile a rotation conversion function
+compiled_m2q = torch.compile(pk.matrix_to_quaternion, fullgraph=True)
+R = torch.randn(100, 3, 3)
+q = compiled_m2q(R)
+```
+
 ## Jacobian calculation
 The Jacobian (in the kinematics context) is a matrix describing how the end effector changes with respect to joint value changes
 (where ![dx](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D) is the twist, or stacked velocity and angular velocity):
-![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D) 
+![jacobian](https://latex.codecogs.com/png.latex?%5Cinline%20%5Cdot%7Bx%7D%3DJ%5Cdot%7Bq%7D)
 
 For `SerialChain` we provide a differentiable and parallelizable method for computing the Jacobian with respect to the base frame.
 ```python
@@ -218,6 +274,38 @@ J = chain.jacobian(th)
 loc = torch.rand(N, 3, dtype=dtype, device=d)
 J = chain.jacobian(th, locations=loc)
 ```
+
+Like FK, the Jacobian has a `torch.compile`-compatible variant `jacobian_tensor`:
+
+```python
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+
+# compile the Jacobian kernel (one-time cost)
+compiled_jac = torch.compile(chain.jacobian_tensor, fullgraph=True)
+
+# input: (B, n_joints) tensor; output: (B, 6, n_joints) Jacobian
+th = torch.randn(100, 7)
+J = compiled_jac(th)
+```
+
+For maximum performance in tight loops (e.g. IK), pass `mode='max-autotune'` to `torch.compile`
+for additional kernel tuning at the cost of longer compilation.
+
+Typical speedups on CPU (Kuka IIWA 7-DOF, vs the old v0.7 `calc_jacobian`):
+
+| Batch size | Old `calc_jacobian` | New `jacobian` (eager) | Compiled `jacobian_tensor` | Speedup (compiled vs old) |
+|---:|---:|---:|---:|---:|
+| 1 | 0.63 ms | 0.12 ms | 0.03 ms | **21x** |
+| 10 | 0.79 ms | 0.15 ms | 0.05 ms | **15x** |
+| 100 | 0.75 ms | 0.30 ms | 0.09 ms | **8x** |
+| 1,000 | 1.67 ms | 1.23 ms | 0.53 ms | **3x** |
+| 10,000 | 7.93 ms | 7.01 ms | 4.91 ms | **1.6x** |
+| 100,000 | 59.42 ms | 64.58 ms | 46.46 ms | **1.3x** |
+
+At small-to-medium batch sizes (the typical IK regime), the new eager implementation is 2-5x faster
+due to vectorized computation replacing the per-frame Python loop.
+`torch.compile` provides an additional 2-4x on top of that, and is faster than the old implementation
+at every batch size.
 
 The Jacobian can be used to do inverse kinematics. See [IK survey](https://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)
 for a survey of ways to do so. Note that IK may be better performed through other means (but doing it through the Jacobian can give an end-to-end differentiable method).
@@ -268,6 +356,34 @@ print(sol.converged)
 print(sol.err_pos)
 print(sol.err_rot)
 ```
+
+### Compiled IK
+
+For workloads that solve IK repeatedly (e.g. in a planning loop), pass `use_compile=True` to compile the
+FK, Jacobian, and damped least squares kernels inside the IK loop with `torch.compile`.
+The outer IK loop with its data-dependent convergence checks remains in eager mode.
+
+```python
+ik = pk.PseudoInverseIK(chain, max_iterations=30, num_retries=10,
+                         joint_limits=lim.T,
+                         early_stopping_any_converged=True,
+                         early_stopping_no_improvement="all",
+                         lr=0.2,
+                         use_compile=True)  # compile inner kernels
+
+# first solve() incurs a one-time compilation cost; subsequent calls are faster
+sol = ik.solve(goal_in_rob_frame_tf)
+```
+
+Typical speedups on CPU (Kuka IIWA 7-DOF, 30 iterations):
+
+| Retries | Eager (v0.7) | Eager (new) | Compiled | Speedup (compiled vs v0.7) |
+|---:|---:|---:|---:|---:|
+| 10 | 25.6 ms | 23.3 ms | 11.8 ms | **2.2x** |
+| 50 | 31.5 ms | 29.0 ms | 15.8 ms | **2.0x** |
+
+Note: `use_compile=True` requires PyTorch 2.0+. You cannot wrap `ik.solve()` directly with
+`torch.compile` due to data-dependent control flow in the outer loop — use this flag instead.
 
 ## SDF Queries
 See [pytorch-volumetric](https://github.com/UM-ARM-Lab/pytorch_volumetric) for the latest details, some instructions are pasted here:

@@ -303,6 +303,166 @@ def test_ur5_fk():
     assert torch.allclose(ik_ret, ret.get_matrix(), atol=1e-6)
 
 
+def test_compile_jacobian():
+    """Test that jacobian_tensor works with torch.compile(fullgraph=True)"""
+    if not hasattr(torch, 'compile'):
+        return  # skip on PyTorch < 2.0
+
+    # Test with URDF (revolute joints only) - Kuka
+    chain = pk.build_serial_chain_from_urdf(
+        open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
+    chain = chain.to(dtype=torch.float64)
+    th = torch.randn(8, 7, dtype=torch.float64)
+
+    eager_J = chain.jacobian_tensor(th)
+    compiled_fn = torch.compile(chain.jacobian_tensor, fullgraph=True)
+    compiled_J = compiled_fn(th)
+    assert torch.allclose(eager_J, compiled_J, atol=1e-10)
+
+    # Test with prismatic joints (simple_arm via SDF)
+    chain2 = pk.build_serial_chain_from_sdf(
+        open(os.path.join(TEST_DIR, "simple_arm.sdf")).read(), "arm_wrist_roll")
+    chain2 = chain2.to(dtype=torch.float64)
+    th2 = torch.randn(8, 4, dtype=torch.float64)
+
+    eager_J2 = chain2.jacobian_tensor(th2)
+    compiled_fn2 = torch.compile(chain2.jacobian_tensor, fullgraph=True)
+    compiled_J2 = compiled_fn2(th2)
+    assert torch.allclose(eager_J2, compiled_J2, atol=1e-10)
+
+    # Test gradients through compiled Jacobian
+    th_grad = torch.randn(4, 7, dtype=torch.float64, requires_grad=True)
+    th_grad2 = th_grad.detach().clone().requires_grad_(True)
+
+    eager_out = chain.jacobian_tensor(th_grad)
+    eager_out.sum().backward()
+
+    compiled_out = compiled_fn(th_grad2)
+    compiled_out.sum().backward()
+
+    assert torch.allclose(th_grad.grad, th_grad2.grad, atol=1e-10)
+
+
+def test_compile_fk():
+    """Test that forward_kinematics_tensor works with torch.compile(fullgraph=True)"""
+    if not hasattr(torch, 'compile'):
+        return  # skip on PyTorch < 2.0
+
+    # Test with URDF (revolute joints only)
+    chain = pk.build_chain_from_urdf(open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read())
+    chain = chain.to(dtype=torch.float64)
+
+    th = torch.randn(8, chain.n_joints, dtype=torch.float64)
+
+    eager_result = chain.forward_kinematics_tensor(th)
+    compiled_fn = torch.compile(chain.forward_kinematics_tensor, fullgraph=True)
+    compiled_result = compiled_fn(th)
+    assert torch.allclose(eager_result, compiled_result, atol=1e-10)
+
+    # Test with SDF (has prismatic and fixed joints)
+    chain2 = pk.build_chain_from_sdf(open(os.path.join(TEST_DIR, "simple_arm.sdf")).read())
+    chain2 = chain2.to(dtype=torch.float64)
+    th2 = torch.randn(8, chain2.n_joints, dtype=torch.float64)
+
+    eager2 = chain2.forward_kinematics_tensor(th2)
+    compiled_fn2 = torch.compile(chain2.forward_kinematics_tensor, fullgraph=True)
+    compiled2 = compiled_fn2(th2)
+    assert torch.allclose(eager2, compiled2, atol=1e-10)
+
+    # Test with MJCF (branching tree)
+    chain3 = pk.build_chain_from_mjcf(open(os.path.join(TEST_DIR, "ant.xml")).read())
+    chain3 = chain3.to(dtype=torch.float64)
+    th3 = torch.randn(8, chain3.n_joints, dtype=torch.float64)
+
+    eager3 = chain3.forward_kinematics_tensor(th3)
+    compiled_fn3 = torch.compile(chain3.forward_kinematics_tensor, fullgraph=True)
+    compiled3 = compiled_fn3(th3)
+    assert torch.allclose(eager3, compiled3, atol=1e-10)
+
+    # Test gradients through compiled FK
+    th_grad = torch.randn(4, chain.n_joints, dtype=torch.float64, requires_grad=True)
+    th_grad2 = th_grad.detach().clone().requires_grad_(True)
+
+    eager_out = chain.forward_kinematics_tensor(th_grad)
+    eager_out.sum().backward()
+
+    compiled_out = compiled_fn(th_grad2)
+    compiled_out.sum().backward()
+
+    assert torch.allclose(th_grad.grad, th_grad2.grad, atol=1e-10)
+
+
+def test_compile_rotation_conversions():
+    """Test that rotation conversion functions work with torch.compile(fullgraph=True)"""
+    if not hasattr(torch, 'compile'):
+        return  # skip on PyTorch < 2.0
+
+    from pytorch_kinematics.transforms import rotation_conversions
+
+    # Test matrix_to_quaternion
+    R = rotation_conversions.random_rotations(16, dtype=torch.float64)
+    eager_q = rotation_conversions.matrix_to_quaternion(R)
+    compiled_m2q = torch.compile(rotation_conversions.matrix_to_quaternion, fullgraph=True)
+    compiled_q = compiled_m2q(R)
+    assert torch.allclose(eager_q, compiled_q, atol=1e-10)
+
+    # Test quaternion_to_axis_angle
+    q = rotation_conversions.random_quaternions(16, dtype=torch.float64)
+    eager_aa = rotation_conversions.quaternion_to_axis_angle(q)
+    compiled_q2aa = torch.compile(rotation_conversions.quaternion_to_axis_angle, fullgraph=True)
+    compiled_aa = compiled_q2aa(q)
+    assert torch.allclose(eager_aa, compiled_aa, atol=1e-10)
+
+    # Test axis_angle_to_quaternion
+    aa = torch.randn(16, 3, dtype=torch.float64)
+    eager_q2 = rotation_conversions.axis_angle_to_quaternion(aa)
+    compiled_aa2q = torch.compile(rotation_conversions.axis_angle_to_quaternion, fullgraph=True)
+    compiled_q2 = compiled_aa2q(aa)
+    assert torch.allclose(eager_q2, compiled_q2, atol=1e-10)
+
+    # Test round-trip: matrix -> quaternion -> axis_angle -> quaternion -> matrix
+    R2 = rotation_conversions.random_rotations(16, dtype=torch.float64)
+
+    def round_trip(R):
+        q = rotation_conversions.matrix_to_quaternion(R)
+        aa = rotation_conversions.quaternion_to_axis_angle(q)
+        q2 = rotation_conversions.axis_angle_to_quaternion(aa)
+        return rotation_conversions.quaternion_to_matrix(q2)
+
+    eager_rt = round_trip(R2)
+    compiled_rt = torch.compile(round_trip, fullgraph=True)(R2)
+    assert torch.allclose(eager_rt, compiled_rt, atol=1e-10)
+
+
+def test_compile_ik_step():
+    """Test that the fused IK step kernel works with torch.compile(fullgraph=True)"""
+    if not hasattr(torch, 'compile'):
+        return  # skip on PyTorch < 2.0
+
+    from pytorch_kinematics.ik import _ik_step_kernel
+
+    N, M, DOF = 4, 3, 7
+    m_flat = torch.eye(4, dtype=torch.float64).unsqueeze(0).expand(N * M, -1, -1).contiguous()
+    # Add some random rotation to make it realistic
+    from pytorch_kinematics.transforms import rotation_conversions
+    R = rotation_conversions.random_rotations(N * M, dtype=torch.float64)
+    m_flat = m_flat.clone()
+    m_flat[:, :3, :3] = R
+    m_flat[:, :3, 3] = torch.randn(N * M, 3, dtype=torch.float64)
+
+    target_pos = torch.randn(N, 3, dtype=torch.float64)
+    target_wxyz = rotation_conversions.random_quaternions(N, dtype=torch.float64)
+    J = torch.randn(N * M, 6, DOF, dtype=torch.float64)
+    reg_matrix = 1e-9 * torch.eye(6, dtype=torch.float64)
+
+    eager_dq, eager_dx = _ik_step_kernel(m_flat, target_pos, target_wxyz, J, reg_matrix, M)
+    compiled_fn = torch.compile(_ik_step_kernel, fullgraph=True)
+    compiled_dq, compiled_dx = compiled_fn(m_flat, target_pos, target_wxyz, J, reg_matrix, M)
+
+    assert torch.allclose(eager_dq, compiled_dq, atol=1e-10)
+    assert torch.allclose(eager_dx, compiled_dx, atol=1e-10)
+
+
 if __name__ == "__main__":
     test_fk_partial_batched()
     test_fk_partial_batched_dict()

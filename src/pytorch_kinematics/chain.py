@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 import pytorch_kinematics.transforms as tf
-from pytorch_kinematics import jacobian
 from pytorch_kinematics.frame import Frame, Link, Joint
 from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_44, axis_and_d_to_pris_matrix
 
@@ -97,8 +96,12 @@ class Chain:
         idx = 0
         self.frame_to_idx = {}
         self.idx_to_frame = {}
+        direct_parents = []
+        frame_depths = []
         while len(queue) > 0:
             root, parent_idx, depth = queue.pop(0)
+            direct_parents.append(parent_idx)
+            frame_depths.append(depth)
             name_strip = root.name.strip("\n")
             self.frame_to_idx[name_strip] = idx
             self.idx_to_frame[idx] = name_strip
@@ -139,6 +142,33 @@ class Chain:
         # We need to use a dict because torch.compile doesn't list lists of tensors
         self.parents_indices = [torch.tensor(p, dtype=torch.long, device=self.device) for p in self.parents_indices]
 
+        # Precomputed structures for torch.compile-compatible FK kernel
+        self._num_frames = idx
+        self._direct_parent_idx = torch.tensor(direct_parents, dtype=torch.long, device=self.device)
+
+        # BFS levels: group frame indices by depth for level-by-level traversal
+        max_depth = max(frame_depths) if frame_depths else 0
+        self._bfs_levels = []
+        for d in range(max_depth + 1):
+            level_frames = [i for i, fd in enumerate(frame_depths) if fd == d]
+            self._bfs_levels.append(torch.tensor(level_frames, dtype=torch.long, device=self.device))
+
+        # Static offsets: pre-multiply link_offset @ joint_offset per frame, identity where None
+        eye4 = torch.eye(4, dtype=self.dtype, device=self.device)
+        static_offsets = []
+        for i in range(self._num_frames):
+            lo = self.link_offsets[i] if self.link_offsets[i] is not None else eye4.unsqueeze(0)
+            jo = self.joint_offsets[i] if self.joint_offsets[i] is not None else eye4.unsqueeze(0)
+            static_offsets.append((lo @ jo).squeeze(0))
+        self._static_offsets = torch.stack(static_offsets, dim=0)  # (num_frames, 4, 4)
+
+        # Clamped joint indices for safe tensor indexing (fixed joints: -1 → 0)
+        self._joint_indices_clamped = self.joint_indices.clamp(min=0)
+
+        # Joint type flags for skipping unnecessary computation in FK
+        self._has_revolute = bool((self.joint_type_indices == 1).any())
+        self._has_prismatic = bool((self.joint_type_indices == 2).any())
+
     def to(self, dtype=None, device=None):
         if dtype is not None:
             self.dtype = dtype
@@ -156,6 +186,11 @@ class Chain:
                               self.joint_offsets]
         self.low = self.low.to(dtype=self.dtype, device=self.device)
         self.high = self.high.to(dtype=self.dtype, device=self.device)
+
+        self._direct_parent_idx = self._direct_parent_idx.to(device=self.device)
+        self._bfs_levels = [l.to(device=self.device) for l in self._bfs_levels]
+        self._static_offsets = self._static_offsets.to(dtype=self.dtype, device=self.device)
+        self._joint_indices_clamped = self._joint_indices_clamped.to(device=self.device)
 
         return self
 
@@ -287,6 +322,73 @@ class Chain:
             print(tree)
         return tree
 
+    def forward_kinematics_tensor(self, th):
+        """
+        Compilable FK kernel. Computes transforms for all frames using level-by-level BFS traversal.
+        Compatible with torch.compile(fullgraph=True).
+
+        Args:
+            th: (B, n_joints) joint angle tensor
+
+        Returns: (num_frames, B, 4, 4) tensor of all frame transforms
+        """
+        B = th.shape[0]
+
+        # Compute joint transforms for all joints at once, skipping unused types.
+        # _has_revolute/_has_prismatic are Python bools so torch.compile specializes on them.
+        jidx = self._joint_indices_clamped
+        eye4 = torch.eye(4, device=th.device, dtype=th.dtype)
+
+        if self.n_joints > 0:
+            axes_expanded = self.axes.unsqueeze(0).expand(B, -1, -1)
+
+            if self._has_revolute:
+                rev_transforms = axis_and_angle_to_matrix_44(axes_expanded, th)
+                rev_per_frame = rev_transforms[:, jidx].permute(1, 0, 2, 3)
+
+            if self._has_prismatic:
+                pris_transforms = axis_and_d_to_pris_matrix(axes_expanded, th)
+                pris_per_frame = pris_transforms[:, jidx].permute(1, 0, 2, 3)
+
+        if self._has_revolute and not self._has_prismatic:
+            # Revolute-only: skip prismatic computation and torch.where selection
+            is_rev = (self.joint_type_indices == 1).reshape(-1, 1, 1, 1)
+            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
+            joint_transforms = torch.where(is_rev, rev_per_frame, joint_transforms)
+        elif self._has_prismatic and not self._has_revolute:
+            # Prismatic-only: skip revolute computation and torch.where selection
+            is_pris = (self.joint_type_indices == 2).reshape(-1, 1, 1, 1)
+            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
+            joint_transforms = torch.where(is_pris, pris_per_frame, joint_transforms)
+        elif self._has_revolute and self._has_prismatic:
+            # Mixed: need both
+            is_rev = (self.joint_type_indices == 1).reshape(-1, 1, 1, 1)
+            is_pris = (self.joint_type_indices == 2).reshape(-1, 1, 1, 1)
+            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
+            joint_transforms = torch.where(is_rev, rev_per_frame, joint_transforms)
+            joint_transforms = torch.where(is_pris, pris_per_frame, joint_transforms)
+        else:
+            # All fixed joints
+            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
+
+        # Local transforms: static_offsets @ joint_transforms
+        local_transforms = self._static_offsets.unsqueeze(1) @ joint_transforms
+
+        # Level-by-level transform accumulation
+        buffer = torch.empty(self._num_frames, B, 4, 4, device=th.device, dtype=th.dtype)
+
+        # Level 0: root frames (no parent to compose with)
+        level_indices = self._bfs_levels[0]
+        buffer[level_indices] = local_transforms[level_indices]
+
+        # Level 1+: compose with parent transforms
+        for d in range(1, len(self._bfs_levels)):
+            level_indices = self._bfs_levels[d]
+            parents = self._direct_parent_idx[level_indices]
+            buffer[level_indices] = buffer[parents] @ local_transforms[level_indices]
+
+        return buffer
+
     def forward_kinematics(self, th, frame_indices: Optional = None):
         """
         Compute forward kinematics for the given joint values.
@@ -306,50 +408,10 @@ class Chain:
         th = self.ensure_tensor(th)
         th = torch.atleast_2d(th)
 
-        b = th.shape[0]
-        axes_expanded = self.axes.unsqueeze(0).repeat(b, 1, 1)
+        all_transforms = self.forward_kinematics_tensor(th)
 
-        # compute all joint transforms at once first
-        # in order to handle multiple joint types without branching, we create all possible transforms
-        # for all joint types and then select the appropriate one for each joint.
-        rev_jnt_transform = axis_and_angle_to_matrix_44(axes_expanded, th)
-        pris_jnt_transform = axis_and_d_to_pris_matrix(axes_expanded, th)
-
-        frame_transforms = {}
-        b = th.shape[0]
-        for frame_idx in frame_indices:
-            frame_transform = torch.eye(4).to(th).unsqueeze(0).repeat(b, 1, 1)
-
-            # iterate down the list and compose the transform
-            for chain_idx in self.parents_indices[frame_idx.item()]:
-                if chain_idx.item() in frame_transforms:
-                    frame_transform = frame_transforms[chain_idx.item()]
-                else:
-                    link_offset_i = self.link_offsets[chain_idx]
-                    if link_offset_i is not None:
-                        frame_transform = frame_transform @ link_offset_i
-
-                    joint_offset_i = self.joint_offsets[chain_idx]
-                    if joint_offset_i is not None:
-                        frame_transform = frame_transform @ joint_offset_i
-
-                    jnt_idx = self.joint_indices[chain_idx]
-                    jnt_type = self.joint_type_indices[chain_idx]
-                    if jnt_type == 0:
-                        pass
-                    elif jnt_type == 1:
-                        jnt_transform_i = rev_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
-                    elif jnt_type == 2:
-                        jnt_transform_i = pris_jnt_transform[:, jnt_idx]
-                        frame_transform = frame_transform @ jnt_transform_i
-
-            frame_transforms[frame_idx.item()] = frame_transform
-
-        frame_names_and_transform3ds = {self.idx_to_frame[frame_idx]: tf.Transform3d(matrix=transform) for
-                                        frame_idx, transform in frame_transforms.items()}
-
-        return frame_names_and_transform3ds
+        return {self.idx_to_frame[fi.item()]: tf.Transform3d(matrix=all_transforms[fi])
+                for fi in frame_indices}
 
     def ensure_tensor(self, th):
         """
@@ -472,10 +534,137 @@ class SerialChain(Chain):
         self._serial_frames = frames
         super().__init__(frames[0], **kwargs)
 
-    def jacobian(self, th, locations=None, **kwargs):
+        # Precompute data for compilable Jacobian (jacobian_tensor)
+        dof_frame_indices = []
+        dof_axes = []
+        dof_types = []  # 1=revolute, 2=prismatic
+        for f in self._serial_frames:
+            if f.joint.joint_type != 'fixed':
+                fi = self.frame_to_idx[f.name]
+                dof_frame_indices.append(fi)
+                dof_axes.append(f.joint.axis)
+                jtype = 1 if f.joint.joint_type == 'revolute' else 2
+                dof_types.append(jtype)
+
+        self._serial_dof_frame_indices = torch.tensor(dof_frame_indices, dtype=torch.long, device=self.device)
+        if dof_axes:
+            self._serial_dof_axes = torch.stack(dof_axes, dim=0).to(device=self.device, dtype=self.dtype)  # (ndof, 3)
+        else:
+            self._serial_dof_axes = torch.zeros(0, 3, device=self.device, dtype=self.dtype)
+        self._serial_dof_types = torch.tensor(dof_types, dtype=torch.long, device=self.device)  # (ndof,)
+        self._serial_eef_frame_idx = self.frame_to_idx[self._serial_frames[-1].name]
+
+    def to(self, dtype=None, device=None):
+        super().to(dtype=dtype, device=device)
+        self._serial_dof_frame_indices = self._serial_dof_frame_indices.to(device=self.device)
+        self._serial_dof_axes = self._serial_dof_axes.to(dtype=self.dtype, device=self.device)
+        self._serial_dof_types = self._serial_dof_types.to(device=self.device)
+        return self
+
+    def jacobian_tensor(self, th, ret_eef_pose=False, all_transforms=None):
+        """
+        Compilable Jacobian kernel. Computes the geometric Jacobian in the base frame.
+        Compatible with torch.compile(fullgraph=True).
+
+        Args:
+            th: (B, n_joints) joint angle tensor
+            ret_eef_pose: if True, also return the (B, 4, 4) end-effector pose matrix.
+            all_transforms: optional pre-computed (num_frames, B, 4, 4) FK transforms.
+                If provided, skips the internal FK computation. Useful to avoid redundant FK calls.
+
+        Returns: (B, 6, ndof) geometric Jacobian, and optionally (B, 4, 4) EEF pose
+        """
+        if all_transforms is None:
+            all_transforms = self.forward_kinematics_tensor(th)  # (num_frames, B, 4, 4)
+
+        p_ee = all_transforms[self._serial_eef_frame_idx, :, :3, 3]  # (B, 3)
+
+        # DOF frame transforms
+        T_dof = all_transforms[self._serial_dof_frame_indices]  # (ndof, B, 4, 4)
+        R_dof = T_dof[:, :, :3, :3]  # (ndof, B, 3, 3)
+        p_dof = T_dof[:, :, :3, 3]   # (ndof, B, 3)
+
+        # Joint axes in base frame: z_i = R_i @ axis_i
+        axes = self._serial_dof_axes  # (ndof, 3)
+        z = torch.einsum('nbij,nj->nbi', R_dof, axes)  # (ndof, B, 3)
+
+        # Position difference: p_ee - p_i
+        dp = p_ee.unsqueeze(0) - p_dof  # (ndof, B, 3)
+
+        # Revolute: J_v = z x dp, J_w = z
+        # Prismatic: J_v = z, J_w = 0
+        cross = torch.cross(z, dp, dim=2)  # (ndof, B, 3)
+
+        is_rev = (self._serial_dof_types == 1).reshape(-1, 1, 1)  # (ndof, 1, 1)
+
+        J_v = torch.where(is_rev, cross, z)  # (ndof, B, 3)
+        J_w = torch.where(is_rev, z, torch.zeros_like(z))  # (ndof, B, 3)
+
+        # Stack to (B, 6, ndof)
+        J = torch.cat([J_v, J_w], dim=2)  # (ndof, B, 6)
+        J = J.permute(1, 2, 0)  # (B, 6, ndof)
+
+        if ret_eef_pose:
+            return J, all_transforms[self._serial_eef_frame_idx]
+        return J
+
+    def jacobian(self, th, locations=None, ret_eef_pose=False):
+        """
+        Compute the geometric Jacobian in the base frame.
+
+        Args:
+            th: Joint angles as a dict, list, numpy array, or torch tensor. Possibly batched.
+            locations: (B, 3) or (3,) tool offset position relative to the end effector.
+            ret_eef_pose: if True, also return the (B, 4, 4) end-effector pose matrix.
+
+        Returns: (B, 6, ndof) Jacobian, and optionally (B, 4, 4) EEF pose
+        """
+        if not torch.is_tensor(th):
+            th = torch.tensor(th, dtype=self.dtype, device=self.device)
+        if len(th.shape) <= 1:
+            th = th.reshape(1, -1)
+
+        if locations is None and not ret_eef_pose:
+            return self.jacobian_tensor(th)
+
         if locations is not None:
-            locations = tf.Transform3d(pos=locations)
-        return jacobian.calc_jacobian(self, th, tool=locations, **kwargs)
+            # Compute FK once and pass to jacobian_tensor to avoid redundant FK
+            all_transforms = self.forward_kinematics_tensor(th)
+            J = self.jacobian_tensor(th, all_transforms=all_transforms)
+            T_ee = all_transforms[self._serial_eef_frame_idx]  # (B, 4, 4)
+
+            if isinstance(locations, tf.Transform3d):
+                tool = locations
+            else:
+                tool = tf.Transform3d(pos=locations)
+            if tool.dtype != self.dtype or tool.device != self.device:
+                tool = tool.to(device=self.device, copy=True, dtype=self.dtype)
+            tool_matrix = tool.get_matrix()
+            T_ee_tool = T_ee @ tool_matrix
+
+            # Tool offset only changes p_ee, affecting linear velocity of revolute joints:
+            #   J_v_new[i] = z_i x (p_ee_tool - p_i) = J_v_old[i] + z_i x (p_ee_tool - p_ee)
+            # Prismatic joints are unaffected (J_v = z, independent of p_ee).
+            delta_p = T_ee_tool[:, :3, 3] - T_ee[:, :3, 3]  # (B, 3)
+
+            T_dof = all_transforms[self._serial_dof_frame_indices]
+            R_dof = T_dof[:, :, :3, :3]
+            z = torch.einsum('nbij,nj->nbi', R_dof, self._serial_dof_axes)  # (ndof, B, 3)
+
+            correction = torch.cross(z, delta_p.unsqueeze(0).expand_as(z), dim=2)  # (ndof, B, 3)
+            is_rev = (self._serial_dof_types == 1).reshape(-1, 1, 1)
+            correction = torch.where(is_rev, correction, torch.zeros_like(correction))
+            J = J.clone()
+            J[:, :3, :] = J[:, :3, :] + correction.permute(1, 2, 0)
+
+            T_ee = T_ee_tool
+            if ret_eef_pose:
+                return J, T_ee
+            return J
+
+        # ret_eef_pose=True, no locations: get both from single FK pass
+        J, T_ee = self.jacobian_tensor(th, ret_eef_pose=True)
+        return J, T_ee
 
     def forward_kinematics(self, th, end_only: bool = True):
         """ Like the base class, except `th` only needs to contain the joints in the SerialChain, not all joints. """
