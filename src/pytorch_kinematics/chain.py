@@ -547,7 +547,10 @@ class SerialChain(Chain):
                 dof_types.append(jtype)
 
         self._serial_dof_frame_indices = torch.tensor(dof_frame_indices, dtype=torch.long, device=self.device)
-        self._serial_dof_axes = torch.stack(dof_axes, dim=0).to(device=self.device, dtype=self.dtype)  # (ndof, 3)
+        if dof_axes:
+            self._serial_dof_axes = torch.stack(dof_axes, dim=0).to(device=self.device, dtype=self.dtype)  # (ndof, 3)
+        else:
+            self._serial_dof_axes = torch.zeros(0, 3, device=self.device, dtype=self.dtype)
         self._serial_dof_types = torch.tensor(dof_types, dtype=torch.long, device=self.device)  # (ndof,)
         self._serial_eef_frame_idx = self.frame_to_idx[self._serial_frames[-1].name]
 
