@@ -319,7 +319,7 @@ class Transform3d:
             points_out: points of shape (N, P, 3) or (P, 3) depending
             on the dimensions of the transform
         """
-        points_batch = points.clone()
+        points_batch = points
         if points_batch.dim() == 2:
             points_batch = points_batch[None]  # (P, 3) -> (1, P, 3)
         if points_batch.dim() != 3:
