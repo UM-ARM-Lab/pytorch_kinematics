@@ -1,6 +1,6 @@
 [project]
 name = "pytorch_kinematics"
-version = "0.9.0"
+version = "0.9.1"
 description = "Robot kinematics implemented in pytorch"
 readme = "README.md" # Optional
 
@@ -44,7 +44,7 @@ dependencies = [
     'lxml',
     'numpy', # pybullet now supports numpy 2; no longer need numpy<2 - if you run into issues update pybullet
     'pyyaml',
-    'torch',
+    'torch>=2.1',
     'matplotlib',
     'pytorch_seed',
     'arm_pytorch_utilities',
