@@ -10,7 +10,7 @@ import pytorch_seed
 import pybullet as p
 import pybullet_data
 
-visualize = False
+visualize = "--visualize" in __import__("sys").argv
 
 
 def _make_robot_translucent(robot_id, alpha=0.4):
@@ -163,8 +163,32 @@ def test_jacobian_follower(robot="kuka_iiwa"):
                                 p.resetJointState(armId, dof, q[dof])
 
                         input("Press enter to continue")
-        except ImportError:
-            print("pip install window_recorder")
+        except (ImportError, OSError):
+            print("window_recorder not available, running without recording")
+            # run visualization without recording
+            for j in range(0, M, num_robots):
+                this_selection = slice(j, j + num_robots)
+                r = goal_rot[this_selection]
+                xyzw = pk.wxyz_to_xyzw(pk.matrix_to_quaternion(pk.euler_angles_to_matrix(r, "XYZ")))
+
+                solutions = sol.solutions[this_selection, :, :]
+                converged = sol.converged[this_selection, :]
+
+                print("Goal %d to %d converged %d / %d" % (j, j + num_robots, converged.sum(), converged.numel()))
+
+                for ii in range(num_retries):
+                    if ii > show_max_num_retries_per_goal:
+                        break
+                    for jj in range(num_robots):
+                        p.resetBasePositionAndOrientation(goals[jj],
+                                                          goal_pos[j + jj].cpu().numpy() + robots[jj]["offset"],
+                                                          xyzw[jj].cpu().numpy())
+                        armId = robots[jj]["id"]
+                        q = solutions[jj, ii, :]
+                        for dof in range(q.shape[0]):
+                            p.resetJointState(armId, dof, q[dof])
+
+                    input("Press enter to continue")
 
         while True:
             p.stepSimulation()
