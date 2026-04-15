@@ -149,6 +149,39 @@ pos.norm().backward()
 # now th.grad is populated
 ```
 
+### Analytical FK Backward
+
+`forward_kinematics_tensor` uses an **analytical geometric Jacobian** for the backward pass by default.
+Instead of replaying all the forward ops through autograd, it computes `d(transform)/d(joint_angles)`
+directly from joint axes and the kinematic tree structure. This is ~9x faster than standard autograd
+on GPU for large batch sizes.
+
+```python
+import torch
+import pytorch_kinematics as pk
+
+chain = pk.build_serial_chain_from_urdf(open("kuka_iiwa.urdf").read(), "lbr_iiwa_link_7")
+
+th = torch.randn(1000, 7, requires_grad=True)
+T_all = chain.forward_kinematics_tensor(th)  # (num_frames, 1000, 4, 4)
+
+# backward uses the analytical Jacobian automatically
+loss = T_all.sum()
+loss.backward()  # th.grad is populated, ~9x faster than autograd on GPU
+```
+
+The analytical backward is compatible with `torch.compile(fullgraph=True)` — all arguments crossing the
+autograd boundary are plain tensors.
+
+**Escape hatch**: set `analytical_grad=False` when you need:
+- **Higher-order gradients** (`create_graph=True` / double backward)
+- **Gradients w.r.t. chain parameters** (e.g. differentiating through link offsets for calibration)
+
+```python
+# Standard autograd — supports create_graph=True and parameter gradients
+T_all = chain.forward_kinematics_tensor(th, analytical_grad=False)
+```
+
 We can load SDF and MJCF descriptions too, and pass in joint values via a dictionary (unspecified joints get th=0) for non-serial chains
 ```python
 import math
@@ -186,7 +219,8 @@ The FK computation can be compiled with `torch.compile(fullgraph=True)` for sign
 especially for applications that call FK thousands of times (e.g. inverse kinematics, trajectory optimization).
 
 Use `forward_kinematics_tensor`, a compile-friendly variant that accepts and returns raw tensors
-instead of dicts and `Transform3d` objects:
+instead of dicts and `Transform3d` objects. The analytical FK backward (see above) works under
+`torch.compile` — both forward and backward are fully traced:
 
 ```python
 import torch
