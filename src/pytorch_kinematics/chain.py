@@ -94,12 +94,15 @@ def _fk_impl(th, static_offsets, joint_indices_clamped, joint_type_indices,
 
 
 class _FKAnalyticalBackward(torch.autograd.Function):
-    """Custom autograd for FK: analytical geometric Jacobian backward.
+    """Attach analytical geometric Jacobian as the backward for FK.
 
-    Forward runs FK without building autograd graph. Backward uses the
-    geometric Jacobian to analytically compute d(loss)/d(joint_angles)
+    Forward passes through the pre-computed T_world_link unchanged. Backward
+    uses the geometric Jacobian to analytically compute d(loss)/d(joint_angles)
     from d(loss)/d(T_world_link), avoiding the expensive graph replay of
     standard autograd (~9x faster on GPU).
+
+    All inputs to apply() are plain tensors, making this compatible with
+    torch.compile (no list[Tensor], bool, or int args that dynamo can't trace).
 
     Notation — indices iterate over:
       L = number of links (frames), B = batch of configs, J = number of DOFs.
@@ -117,13 +120,8 @@ class _FKAnalyticalBackward(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, th, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes,
-                static_offsets, joint_indices_clamped, joint_type_indices,
-                direct_parent_idx, bfs_levels,
-                has_revolute, has_prismatic, num_frames):
-        T_world_link = _fk_impl(th, static_offsets, joint_indices_clamped, joint_type_indices,
-                                direct_parent_idx, bfs_levels, axes,
-                                has_revolute, has_prismatic, num_frames)
+    def forward(ctx, th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes):
+        # No FK computation — just save what backward needs and pass through.
         ctx.save_for_backward(T_world_link, dof_frame_indices, dof_ancestor_mask,
                               dof_is_revolute, axes)
         return T_world_link
@@ -167,8 +165,8 @@ class _FKAnalyticalBackward(torch.autograd.Function):
 
         grad_th = torch.where(dof_is_revolute.unsqueeze(-1), rev_grad, pris_grad).T  # (B, J)
 
-        # Grads for: th + 12 non-differentiable args
-        return (grad_th,) + (None,) * 12
+        # Grads for: th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes
+        return (grad_th,) + (None,) * 5
 
 
 def get_n_joints(th):
@@ -524,13 +522,18 @@ class Chain:
         Returns: (num_frames, B, 4, 4) tensor of all frame transforms
         """
         if th.requires_grad and analytical_grad:
-            return _FKAnalyticalBackward.apply(
-                th, self._dof_frame_indices, self._dof_ancestor_mask,
-                self._dof_is_revolute, self.axes,
-                self._static_offsets, self._joint_indices_clamped,
+            # Compute FK on detached th (no autograd graph needed for forward)
+            T_world_link = _fk_impl(
+                th.detach(), self._static_offsets, self._joint_indices_clamped,
                 self.joint_type_indices, self._direct_parent_idx,
-                self._bfs_levels,
+                self._bfs_levels, self.axes,
                 self._has_revolute, self._has_prismatic, self._num_frames)
+            # Attach analytical backward: connects T_world_link to th in the
+            # autograd graph so that backprop uses the geometric Jacobian
+            # instead of replaying the forward ops. No FK happens here.
+            return _FKAnalyticalBackward.apply(
+                th, T_world_link, self._dof_frame_indices, self._dof_ancestor_mask,
+                self._dof_is_revolute, self.axes)
         return _fk_impl(th, self._static_offsets, self._joint_indices_clamped,
                         self.joint_type_indices, self._direct_parent_idx,
                         self._bfs_levels, self.axes,
