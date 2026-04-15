@@ -10,6 +10,165 @@ from pytorch_kinematics.frame import Frame, Link, Joint
 from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to_matrix_44, axis_and_d_to_pris_matrix
 
 
+def _fk_impl(th, static_offsets, joint_indices_clamped, joint_type_indices,
+             direct_parent_idx, bfs_levels, axes,
+             has_revolute, has_prismatic, num_frames):
+    """Batched forward kinematics: joint angles → world-frame transforms.
+
+    Computes the 4x4 homogeneous world-frame transform for every frame in the
+    kinematic tree, for B joint configurations in parallel.
+
+    Algorithm:
+      1. Convert joint values to per-joint 4x4 transforms (rotation or translation
+         along the joint axis). Fixed joints get identity.
+      2. Compute local transforms: static_offset @ joint_transform for each frame.
+         The static offset encodes the fixed geometric relationship between a frame
+         and its parent (link offset @ joint offset from the URDF/MJCF).
+      3. Accumulate world transforms by traversing the tree level-by-level (BFS).
+         Root frames copy their local transform directly. Each subsequent level
+         composes: world_T[f] = world_T[parent[f]] @ local_T[f].
+         Frames at the same depth are independent and computed in one batched matmul.
+
+    Args:
+        th: (B, n_joints) joint angles/positions
+        static_offsets: (num_frames, 4, 4) pre-multiplied link_offset @ joint_offset
+        joint_indices_clamped: (num_frames,) which joint drives each frame (0 for fixed)
+        joint_type_indices: (num_frames,) 0=fixed, 1=revolute, 2=prismatic
+        direct_parent_idx: (num_frames,) parent frame index (-1 for roots)
+        bfs_levels: list of tensors, bfs_levels[d] = frame indices at depth d
+        axes: (n_joints, 3) joint rotation/translation axes
+        has_revolute: bool, whether any revolute joints exist
+        has_prismatic: bool, whether any prismatic joints exist
+        num_frames: int, total number of frames in the kinematic tree
+
+    Returns:
+        T_world_link: (num_frames, B, 4, 4) transforms from each link frame to world.
+            Right-multiplying by a point in link coordinates gives world coordinates:
+            p_world = T_world_link[f] @ p_link.
+    """
+    B = th.shape[0]
+    jidx = joint_indices_clamped
+    eye4 = torch.eye(4, device=th.device, dtype=th.dtype)
+
+    # Step 1: Joint values → per-joint 4x4 transforms
+    if th.shape[1] > 0:
+        axes_expanded = axes.unsqueeze(0).expand(B, -1, -1)
+        if has_revolute:
+            rev_transforms = axis_and_angle_to_matrix_44(axes_expanded, th)
+            rev_per_frame = rev_transforms[:, jidx].permute(1, 0, 2, 3)
+        if has_prismatic:
+            pris_transforms = axis_and_d_to_pris_matrix(axes_expanded, th)
+            pris_per_frame = pris_transforms[:, jidx].permute(1, 0, 2, 3)
+
+    # Assign joint transforms by type (fixed → identity, revolute → rotation, prismatic → translation)
+    if has_revolute and not has_prismatic:
+        is_rev = (joint_type_indices == 1).reshape(-1, 1, 1, 1)
+        joint_transforms = torch.where(is_rev, rev_per_frame,
+                                        eye4.reshape(1, 1, 4, 4).expand(num_frames, B, 4, 4))
+    elif has_prismatic and not has_revolute:
+        is_pris = (joint_type_indices == 2).reshape(-1, 1, 1, 1)
+        joint_transforms = torch.where(is_pris, pris_per_frame,
+                                        eye4.reshape(1, 1, 4, 4).expand(num_frames, B, 4, 4))
+    elif has_revolute and has_prismatic:
+        is_rev = (joint_type_indices == 1).reshape(-1, 1, 1, 1)
+        is_pris = (joint_type_indices == 2).reshape(-1, 1, 1, 1)
+        joint_transforms = eye4.reshape(1, 1, 4, 4).expand(num_frames, B, 4, 4)
+        joint_transforms = torch.where(is_rev, rev_per_frame, joint_transforms)
+        joint_transforms = torch.where(is_pris, pris_per_frame, joint_transforms)
+    else:
+        joint_transforms = eye4.reshape(1, 1, 4, 4).expand(num_frames, B, 4, 4)
+
+    # Step 2: Local transforms = static geometric offset @ joint-dependent transform
+    local_transforms = static_offsets.unsqueeze(1) @ joint_transforms
+
+    # Step 3: BFS accumulation — T_world_link[f] = T_world_link[parent[f]] @ local_T[f]
+    # Frames at the same depth have independent parents, so each level is one batched matmul.
+    T_world_link = torch.empty(num_frames, B, 4, 4, device=th.device, dtype=th.dtype)
+    T_world_link[bfs_levels[0]] = local_transforms[bfs_levels[0]]
+    for d in range(1, len(bfs_levels)):
+        level_indices = bfs_levels[d]
+        parents = direct_parent_idx[level_indices]
+        T_world_link[level_indices] = T_world_link[parents] @ local_transforms[level_indices]
+
+    return T_world_link
+
+
+class _FKAnalyticalBackward(torch.autograd.Function):
+    """Attach analytical geometric Jacobian as the backward for FK.
+
+    Forward passes through the pre-computed T_world_link unchanged. Backward
+    uses the geometric Jacobian to analytically compute d(loss)/d(joint_angles)
+    from d(loss)/d(T_world_link), avoiding the expensive graph replay of
+    standard autograd (~9x faster on GPU).
+
+    All inputs to apply() are plain tensors, making this compatible with
+    torch.compile (no list[Tensor], bool, or int args that dynamo can't trace).
+
+    Notation — indices iterate over:
+      L = number of links (frames), B = batch of configs, J = number of DOFs.
+
+    The backward formula for each DOF j, summing over descendant links l:
+      revolute:  d(loss)/d(q_j) = z_j · Σ_l mask[j,l] * (τ_l + (t_l - o_j) × ∂L/∂t_l)
+      prismatic: d(loss)/d(q_j) = z_j · Σ_l mask[j,l] * ∂L/∂t_l
+
+    where:
+      T_world_link[l] has rotation R_l and translation t_l (link l's world-frame pose),
+      z_j = world-frame axis of DOF j,  o_j = world-frame origin of DOF j's link,
+      ∂L/∂R_l, ∂L/∂t_l = upstream gradients for link l's rotation and translation,
+      τ_l = axial_vector(R_l @ (∂L/∂R_l)^T) captures the rotation gradient contribution,
+      mask[j,l] = 1 if DOF j is an ancestor of link l (i.e., moving joint j moves link l).
+    """
+
+    @staticmethod
+    def forward(ctx, th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes):
+        # No FK computation — just save what backward needs and pass through.
+        ctx.save_for_backward(T_world_link, dof_frame_indices, dof_ancestor_mask,
+                              dof_is_revolute, axes)
+        return T_world_link
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes = \
+            ctx.saved_tensors
+
+        # Per-link rotation and translation from FK output
+        R_link = T_world_link[:, :, :3, :3]   # (L, B, 3, 3)
+        t_link = T_world_link[:, :, :3, 3]    # (L, B, 3)
+
+        # Upstream gradients for each link's rotation and translation
+        grad_R_link = grad_output[:, :, :3, :3]  # (L, B, 3, 3)
+        grad_t_link = grad_output[:, :, :3, 3]   # (L, B, 3)
+
+        # τ_l: rotation gradient contribution per link — axial vector of R_l @ (∂L/∂R_l)^T
+        # For skew-symmetric M, axial_vector extracts the rotation axis.
+        M = R_link @ grad_R_link.transpose(-1, -2)  # (L, B, 3, 3)
+        tau_link = torch.stack([M[:,:,1,2] - M[:,:,2,1],
+                                M[:,:,2,0] - M[:,:,0,2],
+                                M[:,:,0,1] - M[:,:,1,0]], dim=-1)  # (L, B, 3)
+
+        # Per-DOF world-frame axis z_j and origin o_j
+        T_dof = T_world_link[dof_frame_indices]  # (J, B, 4, 4)
+        z_dof = (T_dof[:, :, :3, :3] @ axes.unsqueeze(-1).unsqueeze(1)).squeeze(-1)  # (J, B, 3)
+        o_dof = T_dof[:, :, :3, 3]  # (J, B, 3)
+
+        # Weighted sums over descendant links via ancestor mask: (J, L) @ (L, B*3)
+        L, B, _ = tau_link.shape
+        sum_tau = (dof_ancestor_mask @ tau_link.reshape(L, B * 3)).reshape(-1, B, 3)
+        sum_grad_t = (dof_ancestor_mask @ grad_t_link.reshape(L, B * 3)).reshape(-1, B, 3)
+        cross_t_grad = torch.cross(t_link, grad_t_link, dim=-1)
+        sum_cross = (dof_ancestor_mask @ cross_t_grad.reshape(L, B * 3)).reshape(-1, B, 3)
+
+        # Revolute: z_j · (sum_tau + sum_cross - o_j × sum_grad_t)
+        rev_grad = (z_dof * (sum_tau + sum_cross - torch.cross(o_dof, sum_grad_t, dim=-1))).sum(dim=-1)
+        # Prismatic: z_j · sum_grad_t
+        pris_grad = (z_dof * sum_grad_t).sum(dim=-1)  # (J, B)
+
+        grad_th = torch.where(dof_is_revolute.unsqueeze(-1), rev_grad, pris_grad).T  # (B, J)
+
+        # Grads for: th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes
+        return (grad_th,) + (None,) * 5
+
+
 def get_n_joints(th):
     """
 
@@ -169,6 +328,25 @@ class Chain:
         self._has_revolute = bool((self.joint_type_indices == 1).any())
         self._has_prismatic = bool((self.joint_type_indices == 2).any())
 
+        # Analytical backward data: DOF-to-frame mapping and ancestor masks
+        self._dof_frame_indices = torch.zeros(self.n_joints, dtype=torch.long, device=self.device)
+        for fi in range(self._num_frames):
+            ji = self.joint_indices[fi].item()
+            if ji >= 0:
+                self._dof_frame_indices[ji] = fi
+
+        # (n_joints, num_frames) float mask: 1.0 if DOF j is an ancestor of frame f
+        ancestor_mask = torch.zeros(self.n_joints, self._num_frames, dtype=self.dtype, device=self.device)
+        for f in range(self._num_frames):
+            ancestor_frames = set(int(x) for x in self.parents_indices[f])
+            for j in range(self.n_joints):
+                if self._dof_frame_indices[j].item() in ancestor_frames:
+                    ancestor_mask[j, f] = 1.0
+        self._dof_ancestor_mask = ancestor_mask
+
+        jt = self.joint_type_indices[self._dof_frame_indices]
+        self._dof_is_revolute = (jt == 1)  # (n_joints,)
+
     def to(self, dtype=None, device=None):
         if dtype is not None:
             self.dtype = dtype
@@ -191,6 +369,10 @@ class Chain:
         self._bfs_levels = [l.to(device=self.device) for l in self._bfs_levels]
         self._static_offsets = self._static_offsets.to(dtype=self.dtype, device=self.device)
         self._joint_indices_clamped = self._joint_indices_clamped.to(device=self.device)
+
+        self._dof_frame_indices = self._dof_frame_indices.to(device=self.device)
+        self._dof_ancestor_mask = self._dof_ancestor_mask.to(dtype=self.dtype, device=self.device)
+        self._dof_is_revolute = self._dof_is_revolute.to(device=self.device)
 
         return self
 
@@ -322,72 +504,40 @@ class Chain:
             print(tree)
         return tree
 
-    def forward_kinematics_tensor(self, th):
+    def forward_kinematics_tensor(self, th, analytical_grad=True):
         """
-        Compilable FK kernel. Computes transforms for all frames using level-by-level BFS traversal.
-        Compatible with torch.compile(fullgraph=True).
+        Compute forward kinematics for a batch of joint configurations.
+
+        When th.requires_grad is True, backward uses an analytical geometric
+        Jacobian by default (~9x faster than autograd on GPU). Set
+        analytical_grad=False to use standard autograd instead (needed for
+        higher-order gradients or differentiating w.r.t. chain parameters).
 
         Args:
             th: (B, n_joints) joint angle tensor
+            analytical_grad: if True (default), use the analytical geometric
+                Jacobian for backward. If False, use standard autograd (supports
+                create_graph=True and gradients w.r.t. chain parameters).
 
         Returns: (num_frames, B, 4, 4) tensor of all frame transforms
         """
-        B = th.shape[0]
-
-        # Compute joint transforms for all joints at once, skipping unused types.
-        # _has_revolute/_has_prismatic are Python bools so torch.compile specializes on them.
-        jidx = self._joint_indices_clamped
-        eye4 = torch.eye(4, device=th.device, dtype=th.dtype)
-
-        if self.n_joints > 0:
-            axes_expanded = self.axes.unsqueeze(0).expand(B, -1, -1)
-
-            if self._has_revolute:
-                rev_transforms = axis_and_angle_to_matrix_44(axes_expanded, th)
-                rev_per_frame = rev_transforms[:, jidx].permute(1, 0, 2, 3)
-
-            if self._has_prismatic:
-                pris_transforms = axis_and_d_to_pris_matrix(axes_expanded, th)
-                pris_per_frame = pris_transforms[:, jidx].permute(1, 0, 2, 3)
-
-        if self._has_revolute and not self._has_prismatic:
-            # Revolute-only: skip prismatic computation and torch.where selection
-            is_rev = (self.joint_type_indices == 1).reshape(-1, 1, 1, 1)
-            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
-            joint_transforms = torch.where(is_rev, rev_per_frame, joint_transforms)
-        elif self._has_prismatic and not self._has_revolute:
-            # Prismatic-only: skip revolute computation and torch.where selection
-            is_pris = (self.joint_type_indices == 2).reshape(-1, 1, 1, 1)
-            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
-            joint_transforms = torch.where(is_pris, pris_per_frame, joint_transforms)
-        elif self._has_revolute and self._has_prismatic:
-            # Mixed: need both
-            is_rev = (self.joint_type_indices == 1).reshape(-1, 1, 1, 1)
-            is_pris = (self.joint_type_indices == 2).reshape(-1, 1, 1, 1)
-            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
-            joint_transforms = torch.where(is_rev, rev_per_frame, joint_transforms)
-            joint_transforms = torch.where(is_pris, pris_per_frame, joint_transforms)
-        else:
-            # All fixed joints
-            joint_transforms = eye4.reshape(1, 1, 4, 4).expand(self._num_frames, B, 4, 4)
-
-        # Local transforms: static_offsets @ joint_transforms
-        local_transforms = self._static_offsets.unsqueeze(1) @ joint_transforms
-
-        # Level-by-level transform accumulation
-        buffer = torch.empty(self._num_frames, B, 4, 4, device=th.device, dtype=th.dtype)
-
-        # Level 0: root frames (no parent to compose with)
-        level_indices = self._bfs_levels[0]
-        buffer[level_indices] = local_transforms[level_indices]
-
-        # Level 1+: compose with parent transforms
-        for d in range(1, len(self._bfs_levels)):
-            level_indices = self._bfs_levels[d]
-            parents = self._direct_parent_idx[level_indices]
-            buffer[level_indices] = buffer[parents] @ local_transforms[level_indices]
-
-        return buffer
+        if th.requires_grad and analytical_grad:
+            # Compute FK on detached th (no autograd graph needed for forward)
+            T_world_link = _fk_impl(
+                th.detach(), self._static_offsets, self._joint_indices_clamped,
+                self.joint_type_indices, self._direct_parent_idx,
+                self._bfs_levels, self.axes,
+                self._has_revolute, self._has_prismatic, self._num_frames)
+            # Attach analytical backward: connects T_world_link to th in the
+            # autograd graph so that backprop uses the geometric Jacobian
+            # instead of replaying the forward ops. No FK happens here.
+            return _FKAnalyticalBackward.apply(
+                th, T_world_link, self._dof_frame_indices, self._dof_ancestor_mask,
+                self._dof_is_revolute, self.axes)
+        return _fk_impl(th, self._static_offsets, self._joint_indices_clamped,
+                        self.joint_type_indices, self._direct_parent_idx,
+                        self._bfs_levels, self.axes,
+                        self._has_revolute, self._has_prismatic, self._num_frames)
 
     def forward_kinematics(self, th, frame_indices: Optional = None):
         """

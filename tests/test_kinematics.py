@@ -463,6 +463,92 @@ def test_compile_ik_step():
     assert torch.allclose(eager_dx, compiled_dx, atol=1e-10)
 
 
+def test_analytical_grad_revolute():
+    """Test analytical FK gradient against finite differences (revolute-only chain)."""
+    chain = pk.build_serial_chain_from_urdf(
+        open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
+    chain = chain.to(dtype=torch.float64)
+
+    th = torch.tensor([[0.1, -0.3, 0.2, 0.8, -0.1, 0.5, -0.2]], dtype=torch.float64)
+
+    # Loss that exercises both position and rotation gradients
+    def compute_loss(q):
+        T = chain.forward_kinematics_tensor(q)
+        return T[:, :, :3, 3].sum() + T[:, :, :3, :3].diagonal(dim1=-2, dim2=-1).sum()
+
+    # Analytical gradient (our custom backward)
+    q_a = th.detach().clone().requires_grad_(True)
+    compute_loss(q_a).backward()
+    grad_analytical = q_a.grad.clone()
+
+    # Finite difference gradient
+    eps = 1e-6
+    grad_fd = torch.zeros_like(th)
+    for j in range(th.shape[1]):
+        q_plus = th.clone(); q_plus[0, j] += eps
+        q_minus = th.clone(); q_minus[0, j] -= eps
+        grad_fd[0, j] = (compute_loss(q_plus) - compute_loss(q_minus)) / (2 * eps)
+
+    assert torch.allclose(grad_analytical, grad_fd, atol=1e-5), \
+        f"Max diff: {(grad_analytical - grad_fd).abs().max()}"
+
+
+def test_analytical_grad_prismatic():
+    """Test analytical FK gradient against finite differences (mixed revolute+prismatic)."""
+    chain = pk.build_chain_from_urdf(
+        open(os.path.join(TEST_DIR, "prismatic_robot.urdf")).read())
+    chain = chain.to(dtype=torch.float64)
+
+    th = torch.tensor([[0.1, 0.2, -0.1]], dtype=torch.float64)
+
+    def compute_loss(q):
+        T = chain.forward_kinematics_tensor(q)
+        return T[:, :, :3, 3].sum() + T[:, :, :3, :3].diagonal(dim1=-2, dim2=-1).sum()
+
+    q_a = th.detach().clone().requires_grad_(True)
+    compute_loss(q_a).backward()
+    grad_analytical = q_a.grad.clone()
+
+    eps = 1e-6
+    grad_fd = torch.zeros_like(th)
+    for j in range(th.shape[1]):
+        q_plus = th.clone(); q_plus[0, j] += eps
+        q_minus = th.clone(); q_minus[0, j] -= eps
+        grad_fd[0, j] = (compute_loss(q_plus) - compute_loss(q_minus)) / (2 * eps)
+
+    assert torch.allclose(grad_analytical, grad_fd, atol=1e-5), \
+        f"Max diff: {(grad_analytical - grad_fd).abs().max()}"
+
+
+def test_analytical_grad_batched():
+    """Test analytical FK gradient with batched configs (B > 1)."""
+    chain = pk.build_serial_chain_from_urdf(
+        open(os.path.join(TEST_DIR, "kuka_iiwa.urdf")).read(), "lbr_iiwa_link_7")
+    chain = chain.to(dtype=torch.float64)
+
+    B = 4
+    th = torch.randn(B, 7, dtype=torch.float64)
+
+    def compute_loss(q):
+        T = chain.forward_kinematics_tensor(q)
+        return T[:, :, :3, 3].sum() + T[:, :, :3, :3].diagonal(dim1=-2, dim2=-1).sum()
+
+    q_a = th.detach().clone().requires_grad_(True)
+    compute_loss(q_a).backward()
+    grad_analytical = q_a.grad.clone()
+
+    eps = 1e-6
+    grad_fd = torch.zeros_like(th)
+    for b in range(B):
+        for j in range(th.shape[1]):
+            q_plus = th.clone(); q_plus[b, j] += eps
+            q_minus = th.clone(); q_minus[b, j] -= eps
+            grad_fd[b, j] = (compute_loss(q_plus) - compute_loss(q_minus)) / (2 * eps)
+
+    assert torch.allclose(grad_analytical, grad_fd, atol=1e-5), \
+        f"Max diff: {(grad_analytical - grad_fd).abs().max()}"
+
+
 if __name__ == "__main__":
     test_fk_partial_batched()
     test_fk_partial_batched_dict()
