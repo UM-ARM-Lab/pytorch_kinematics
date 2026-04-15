@@ -506,22 +506,24 @@ class Chain:
             print(tree)
         return tree
 
-    def forward_kinematics_tensor(self, th):
+    def forward_kinematics_tensor(self, th, analytical_grad=True):
         """
         Compute forward kinematics for a batch of joint configurations.
 
         When th.requires_grad is True, backward uses an analytical geometric
-        Jacobian (~9x faster than autograd on GPU). When False, runs without
-        building the autograd graph.
-
-        Compatible with torch.compile(fullgraph=True) when requires_grad is False.
+        Jacobian by default (~9x faster than autograd on GPU). Set
+        analytical_grad=False to use standard autograd instead (needed for
+        higher-order gradients or differentiating w.r.t. chain parameters).
 
         Args:
             th: (B, n_joints) joint angle tensor
+            analytical_grad: if True (default), use the analytical geometric
+                Jacobian for backward. If False, use standard autograd (supports
+                create_graph=True and gradients w.r.t. chain parameters).
 
         Returns: (num_frames, B, 4, 4) tensor of all frame transforms
         """
-        if th.requires_grad:
+        if th.requires_grad and analytical_grad:
             return _FKAnalyticalBackward.apply(
                 th, self._dof_frame_indices, self._dof_ancestor_mask,
                 self._dof_is_revolute, self.axes,
