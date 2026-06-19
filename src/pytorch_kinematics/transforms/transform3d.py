@@ -268,7 +268,7 @@ class Transform3d:
         """
         composed_matrix = self._matrix
         for other in self._transforms:
-            other_matrix = other.get_matrix()
+            other_matrix = other.get_matrix().to(composed_matrix.device)
             composed_matrix = _broadcast_bmm(composed_matrix, other_matrix)
         return composed_matrix
 

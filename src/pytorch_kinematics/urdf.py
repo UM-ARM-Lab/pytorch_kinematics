@@ -72,7 +72,7 @@ def _build_chain_recurse(root_frame, lmap, joints):
     return children
 
 
-def build_chain_from_urdf(data):
+def build_chain_from_urdf(data, use_optimized_allegro=True):
     """
     Build a Chain object from URDF data.
 
@@ -80,11 +80,14 @@ def build_chain_from_urdf(data):
     ----------
     data : str
         URDF string data.
+    use_optimized_allegro : bool, optional
+        Whether to use optimized kinematics for Allegro hands (default: True).
 
     Returns
     -------
     chain.Chain
-        Chain object created from URDF.
+        Chain object created from URDF. If the URDF represents an Allegro hand 
+        and use_optimized_allegro is True, returns an optimized AllegroKinematicsChain.
 
     Example
     -------
@@ -103,6 +106,16 @@ def build_chain_from_urdf(data):
      	link2_frame
 
     """
+    # Check if this is an Allegro hand and use optimized kinematics if requested
+    if use_optimized_allegro:
+        try:
+            from .allegro_kinematics import is_allegro_urdf, build_allegro_chain_from_urdf
+            if is_allegro_urdf(data):
+                return build_allegro_chain_from_urdf(data)
+        except ImportError:
+            # Fallback to standard chain if allegro_kinematics module not available
+            pass
+    
     robot = URDF.from_xml_string(data)
     lmap = robot.link_map
     joints = robot.joints
@@ -129,7 +142,7 @@ def build_chain_from_urdf(data):
     return chain.Chain(root_frame)
 
 
-def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
+def build_serial_chain_from_urdf(data, end_link_name, root_link_name="", use_optimized_allegro=True):
     """
     Build a SerialChain object from urdf data.
 
@@ -141,12 +154,25 @@ def build_serial_chain_from_urdf(data, end_link_name, root_link_name=""):
         The name of the link that is the end effector.
     root_link_name : str, optional
         The name of the root link.
+    use_optimized_allegro : bool, optional
+        Whether to use optimized kinematics for Allegro hands (default: True).
 
     Returns
     -------
     chain.SerialChain
-        SerialChain object created from URDF.
+        SerialChain object created from URDF. If the URDF represents an Allegro hand 
+        and use_optimized_allegro is True, returns an optimized AllegroSerialChain.
     """
-    urdf_chain = build_chain_from_urdf(data)
+    # Check if this is an Allegro hand and use optimized kinematics if requested
+    if use_optimized_allegro:
+        try:
+            from .allegro_kinematics import is_allegro_urdf, build_allegro_serial_chain_from_urdf
+            if is_allegro_urdf(data):
+                return build_allegro_serial_chain_from_urdf(data, end_link_name, root_link_name)
+        except ImportError:
+            # Fallback to standard chain if allegro_kinematics module not available
+            pass
+    
+    urdf_chain = build_chain_from_urdf(data, use_optimized_allegro=False)  # Avoid double detection
     return chain.SerialChain(urdf_chain, end_link_name,
                              "" if root_link_name == "" else root_link_name)
