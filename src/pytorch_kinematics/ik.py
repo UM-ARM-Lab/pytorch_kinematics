@@ -598,9 +598,19 @@ class PseudoInverseIK(InverseKinematics):
         """
         low = self.chain.low
         high = self.chain.high
-        center = (low + high) / 2
-        # compute the number of 2*pi shifts needed to bring q closest to the center of the limits
-        n = torch.round((center - q) / (2 * math.pi))
+        finite_low = torch.isfinite(low)
+        finite_high = torch.isfinite(high)
+        bounded = finite_low & finite_high
+        # Unbounded joints have no finite center and must not be shifted. For
+        # two-sided limits, choose the equivalent angle closest to the center.
+        center = torch.where(bounded, low / 2 + high / 2, 0.0)
+        n = torch.where(bounded, torch.round((center - q) / (2 * math.pi)), 0.0)
+        # With only one bound, keep valid angles unchanged and shift violations
+        # by the smallest whole number of turns that satisfies that bound.
+        n = torch.where(finite_low & ~finite_high,
+                        torch.ceil((low - q) / (2 * math.pi)).clamp(min=0), n)
+        n = torch.where(finite_high & ~finite_low,
+                        torch.floor((high - q) / (2 * math.pi)).clamp(max=0), n)
         # only apply to revolute joints
         q_wrapped = q.clone()
         q_wrapped[..., self._revolute_mask] = q[..., self._revolute_mask] + n[..., self._revolute_mask] * 2 * math.pi
