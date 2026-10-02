@@ -1,4 +1,5 @@
 import os
+import math
 
 import torch
 import pytorch_kinematics as pk
@@ -72,6 +73,74 @@ def test_enforce_joint_limits_flag():
     has_violation = ((q_all < chain.low).any() | (q_all > chain.high).any()).item()
     # We don't assert violations must exist (they might not), but just check it ran without error
     print(f"enforce_joint_limits=False: violations present = {has_violation}")
+
+
+def test_ik_mixed_continuous_and_bounded_joints():
+    """Limit enforcement must preserve solved poses with continuous joints."""
+    urdf = """<robot name="turntable_slide">
+        <link name="base"/><link name="turntable"/><link name="tool"/>
+        <joint name="spin" type="continuous">
+            <parent link="base"/><child link="turntable"/><axis xyz="0 0 1"/>
+        </joint>
+        <joint name="slide" type="prismatic">
+            <parent link="turntable"/><child link="tool"/><axis xyz="1 0 0"/>
+            <limit lower="0" upper="1" effort="10" velocity="1"/>
+        </joint>
+    </robot>"""
+    chain = pk.build_serial_chain_from_urdf(urdf, "tool").to(dtype=torch.float64)
+    goal_q = torch.tensor([[0.5, 0.25]], dtype=chain.dtype)
+    goal_tf = chain.forward_kinematics(goal_q)
+    retry_configs = goal_q.repeat(2, 1)
+    retry_configs[1, 0] += 4 * math.pi
+    ik = pk.PseudoInverseIK(chain, retry_configs=retry_configs,
+                            early_stopping_any_converged=True)
+
+    sol = ik.solve(goal_tf)
+
+    assert torch.isfinite(sol.solutions).all()
+    assert sol.converged.all()
+    assert (sol.solutions >= chain.low).all()
+    assert (sol.solutions <= chain.high).all()
+    torch.testing.assert_close(chain.forward_kinematics(sol.solutions[0]).get_matrix(),
+                               goal_tf.get_matrix().expand(2, -1, -1))
+
+
+def test_revolute_wrapping_with_one_sided_limits():
+    """Periodic wrapping respects finite bounds without clamping the pose."""
+    urdf = """<robot name="partial_limits">
+        <link name="base"/><link name="lower"/><link name="upper"/>
+        <link name="spin"/><link name="tool"/>
+        <joint name="lower_only" type="revolute">
+            <parent link="base"/><child link="lower"/><axis xyz="0 0 1"/>
+            <limit lower="0" upper="inf" effort="10" velocity="1"/>
+        </joint>
+        <joint name="upper_only" type="revolute">
+            <parent link="lower"/><child link="upper"/><axis xyz="0 1 0"/>
+            <limit lower="-inf" upper="0" effort="10" velocity="1"/>
+        </joint>
+        <joint name="continuous" type="continuous">
+            <parent link="upper"/><child link="spin"/><axis xyz="1 0 0"/>
+        </joint>
+        <joint name="slide" type="prismatic">
+            <parent link="spin"/><child link="tool"/><axis xyz="1 0 0"/>
+            <limit lower="0" upper="1" effort="10" velocity="1"/>
+        </joint>
+    </robot>"""
+    chain = pk.build_serial_chain_from_urdf(urdf, "tool").to(dtype=torch.float64)
+    q = torch.tensor([[-2 * math.pi + 0.3, 4 * math.pi - 0.4, 6 * math.pi + 0.2, 0.25],
+                      [4 * math.pi + 0.3, -2 * math.pi - 0.4, -6 * math.pi - 0.2, 0.4]],
+                     dtype=chain.dtype)
+    ik = pk.PseudoInverseIK(chain, retry_configs=q)
+
+    wrapped = ik._wrap_revolute_joints(q)
+
+    expected = q.clone()
+    expected[0, :2] = torch.tensor([0.3, -0.4], dtype=chain.dtype)
+    torch.testing.assert_close(wrapped, expected)
+    torch.testing.assert_close(chain.forward_kinematics(wrapped).get_matrix(),
+                               chain.forward_kinematics(q).get_matrix())
+    assert (wrapped >= chain.low).all()
+    assert (wrapped <= chain.high).all()
 
 
 if __name__ == "__main__":
