@@ -118,12 +118,11 @@ def _ik_step_kernel_svd(m_flat: torch.Tensor, target_pos: torch.Tensor, target_w
     if lm_damping > 0.0:
         mu = lm_damping * (dx_w * dx_w).sum(dim=1, keepdim=True).squeeze(2)  # (NM, 1)
         regularization = regularization + mu
-    U, D, Vh = torch.linalg.svd(J_w)
-    m_sv = D.shape[1]
+    # Reduced factors also support underactuated chains (DOF < 6).
+    U, D, Vh = torch.linalg.svd(J_w, full_matrices=False)
     denom = D ** 2 + regularization
     prod = D / denom
     inverted = torch.diag_embed(prod)
-    Vh = Vh[:, :m_sv, :]
     total = Vh.transpose(1, 2) @ inverted @ U.transpose(1, 2)
     dq = total @ dx_w
     return dq, dx
