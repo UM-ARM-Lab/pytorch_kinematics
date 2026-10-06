@@ -214,6 +214,7 @@ class LineSearch:
 
 class BacktrackingLineSearch(LineSearch):
     def __init__(self, max_lr=1.0, decrease_factor=0.5, max_iterations=5, sufficient_decrease=0.01):
+        """Backtrack until the pose error decreases by this fraction of its initial norm."""
         self.initial_lr = max_lr
         self.decrease_factor = decrease_factor
         self.max_iterations = max_iterations
@@ -249,7 +250,7 @@ class BacktrackingLineSearch(LineSearch):
             err_new = dx.squeeze().norm(dim=-1)
             # check if it's better
             improvement = err - err_new
-            improved = improvement > self.sufficient_decrease
+            improved = improvement > self.sufficient_decrease * err
             # if it's better, we're done for those
             # if it's not better, reduce the learning rate
             lr[~improved] *= self.decrease_factor
