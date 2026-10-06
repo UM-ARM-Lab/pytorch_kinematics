@@ -191,7 +191,7 @@ def get_batch_size(th):
         return th.shape[0]
     elif isinstance(th, dict):
         elem_shape = get_dict_elem_shape(th)
-        return elem_shape[0]
+        return elem_shape[0] if elem_shape else 1
     elif isinstance(th, list):
         # Lists cannot be batched. We don't allow lists of lists.
         return 1
@@ -580,7 +580,7 @@ class Chain:
             joint_names = self.get_joint_parameter_names()
             for joint_name, joint_position in th_dict.items():
                 jnt_idx = joint_names.index(joint_name)
-                th[..., jnt_idx] = joint_position
+                th[..., jnt_idx] = torch.as_tensor(joint_position, dtype=self.dtype, device=self.device)
             if torch.any(torch.isnan(th)):
                 msg = "Missing values for the following joints:\n"
                 for joint_name, th_i in zip(self.get_joint_parameter_names(), th):
@@ -769,8 +769,7 @@ class SerialChain(Chain):
 
         Returns: (B, 6, ndof) Jacobian, and optionally (B, 4, 4) EEF pose
         """
-        if not torch.is_tensor(th):
-            th = torch.tensor(th, dtype=self.dtype, device=self.device)
+        th = self.ensure_tensor(th)
         if len(th.shape) <= 1:
             th = th.reshape(1, -1)
 
