@@ -283,7 +283,8 @@ class InverseKinematics:
         :param serial_chain:
         :param pos_tolerance: position tolerance in meters
         :param rot_tolerance: rotation tolerance in radians
-        :param retry_configs: (M, DOF) tensor of initial configs to try for each problem; leave as None to sample
+        :param retry_configs: (M, DOF) shared initial configs or (N, M, DOF) initial configs
+        for each of N target poses; leave as None to sample
         :param num_retries: number, M, of random initial configs to try for that problem; implemented with batching
         :param joint_limits: (DOF, 2) tensor of joint limits (min, max) for each joint in radians
         :param config_sampling_method: either "uniform" or "gaussian" or a function that takes in the number of configs
@@ -360,8 +361,8 @@ class InverseKinematics:
         if retry_configs is None:
             self.initial_config = self.sample_configs(num_retries)
         else:
-            if retry_configs.shape[1] != self.dof:
-                raise ValueError("initial_configs must have shape (N, %d)" % self.dof)
+            if retry_configs.ndim not in (2, 3) or retry_configs.shape[-1] != self.dof:
+                raise ValueError("initial_configs must have shape (M, %d) or (N, M, %d)" % (self.dof, self.dof))
         # could give a batch of initial configs
         self.num_retries = self.initial_config.shape[-2]
 
