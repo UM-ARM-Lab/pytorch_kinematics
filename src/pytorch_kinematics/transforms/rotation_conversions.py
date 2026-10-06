@@ -746,9 +746,9 @@ def quaternion_from_euler(rpy, axes='sxyz'):
     if parity:
         aj = -aj
 
-    ai /= 2.0
-    aj /= 2.0
-    ak /= 2.0
+    ai = ai / 2.0
+    aj = aj / 2.0
+    ak = ak / 2.0
     ci = torch.cos(ai)
     si = torch.sin(ai)
     cj = torch.cos(aj)
