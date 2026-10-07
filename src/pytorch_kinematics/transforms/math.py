@@ -45,36 +45,47 @@ def quaternion_close(q1: torch.Tensor, q2: torch.Tensor, eps: float = 1e-4):
     return torch.all(dist < eps)
 
 
-def quaternion_slerp(q1: torch.Tensor, q2: torch.Tensor, t: Union[float, torch.tensor]) -> torch.Tensor:
+def quaternion_slerp(q1: torch.Tensor, q2: torch.Tensor, t: Union[float, torch.Tensor]) -> torch.Tensor:
     """
-    Spherical linear interpolation between two quaternions.
+    Spherical linear interpolation between two quaternions along the shortest path.
     Args:
-        q1: First quaternion (assume normalized).
-        q2: Second quaternion (assume normalized).
-        t: Interpolation parameter.
+        q1: First normalized quaternion, of shape (..., 4).
+        q2: Second normalized quaternion, of shape (..., 4).
+        t: Interpolation parameter, a scalar or tensor of shape (...) or (..., 1).
     Returns:
-        Interpolated quaternion.
+        Normalized interpolated quaternion. Inputs are not modified.
     """
-    # Compute the cosine of the angle between the two quaternions
-    cos_theta = torch.sum(q1 * q2, dim=-1)
+    cos_theta = torch.sum(q1 * q2, dim=-1, keepdim=True)
+    q2 = torch.where(cos_theta < 0, -q2, q2)
+    cos_theta = cos_theta.abs().clamp(max=1.0)
+    # Floating Tensor times keep their precision and normal dtype promotion.
+    # Python scalars and nonfloating times use the endpoint precision.
+    if torch.is_tensor(t) and (t.is_floating_point() or t.is_complex()):
+        t = t.to(device=q1.device)
+    else:
+        t = torch.as_tensor(t, dtype=cos_theta.dtype, device=q1.device)
+    batch_shape = cos_theta.shape[:-1]
+    column_time = t.ndim > 0 and t.shape[-1] == 1 and t.shape != batch_shape and all(
+        time_size == 1 or pair_size == 1 or time_size == pair_size
+        for time_size, pair_size in zip(reversed(t.shape), reversed(cos_theta.shape))
+    )
+    # Preserve column-time broadcasting. Exact per-pair batch shapes take
+    # precedence when singleton dimensions would otherwise be ambiguous.
+    if t.ndim > 0 and not column_time:
+        t = t.unsqueeze(-1)
 
-    # reverse the direction of q2 if q1 and q2 are not in the same hemisphere
-    to_invert = cos_theta < 0
-    q2[to_invert] = -q2[to_invert]
-    cos_theta[to_invert] = -cos_theta[to_invert]
+    # Select the near-identity limit independently for each quaternion pair.
+    close = (1.0 - cos_theta) < 1e-6
+    linear = q1 + t * (q2 - q1)
+    linear = linear / linear.norm(dim=-1, keepdim=True)
 
-    # If the quaternions are close, perform a linear interpolation
-    if torch.all(cos_theta > 1.0 - 1e-6):
-        return q1 + t * (q2 - q1)
-
-    # Ensure the angle is between 0 and pi
-    theta = torch.acos(cos_theta)
+    # Keep the unused spherical branch finite, including its backward pass.
+    theta = torch.acos(torch.where(close, torch.zeros_like(cos_theta), cos_theta))
     sin_theta = torch.sin(theta)
-
-    # Perform the interpolation
     w1 = torch.sin((1.0 - t) * theta) / sin_theta
     w2 = torch.sin(t * theta) / sin_theta
-    return w1[:, None] * q1 + w2[:, None] * q2
+    spherical = w1 * q1 + w2 * q2
+    return torch.where(close, linear, spherical)
 
 
 def acos_linear_extrapolation(
