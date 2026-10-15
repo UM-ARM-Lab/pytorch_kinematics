@@ -20,19 +20,15 @@ def quaternion_angular_distance(q1: torch.Tensor, q2: torch.Tensor) -> torch.Ten
         Angular distance between the two quaternions.
     """
 
-    # Compute the cosine of the angle between the two quaternions
-    cos_theta = torch.sum(q1 * q2, dim=-1)
-    # we use atan2 instead of acos for better numerical stability
-    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
-    abs_dot = torch.abs(cos_theta)
-    # identity sin^2(theta) = 1 - cos^2(theta)
-    sin_half_theta = torch.sqrt(1.0 - torch.square(abs_dot))
-    theta = 2.0 * torch.atan2(sin_half_theta, abs_dot)
-
-    # theta for the ones that are close gets 0 and we don't care about them
-    close = quaternion_close(q1, q2)
-    theta[close] = 0
-    return theta
+    dot = torch.sum(q1 * q2, dim=-1).clamp(-1.0, 1.0)
+    aligned_q2 = torch.where((dot < 0)[..., None], -q2, q2)
+    # The chord lengths give the half-angle without subtracting nearly equal
+    # squared dot products, and have finite derivatives at coincident points.
+    theta = 4.0 * torch.atan2((q1 - aligned_q2).norm(dim=-1),
+                              (q1 + aligned_q2).norm(dim=-1))
+    # Apply the existing closeness threshold independently to each pair.
+    close = 1.0 - dot.square() < 1e-4
+    return torch.where(close, torch.zeros_like(theta), theta)
 
 
 def quaternion_close(q1: torch.Tensor, q2: torch.Tensor, eps: float = 1e-4):
