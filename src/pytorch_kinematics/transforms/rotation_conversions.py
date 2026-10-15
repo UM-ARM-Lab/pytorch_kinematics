@@ -575,12 +575,7 @@ def axis_angle_to_quaternion(axis_angle):
     """
     angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
     half_angles = 0.5 * angles
-    eps = 1e-6
-    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
-    # so sin(x/2)/x is about 1/2 - (x*x)/48
-    small_theta = 0.5 - (angles * angles) / 48
-    large_theta = torch.sin(half_angles) / angles
-    sin_half_angles_over_angles = torch.where(angles.abs() < eps, small_theta, large_theta)
+    sin_half_angles_over_angles = 0.5 * torch.sinc(half_angles / torch.pi)
     quaternions = torch.cat(
         [torch.cos(half_angles), axis_angle * sin_half_angles_over_angles], dim=-1
     )
@@ -603,13 +598,7 @@ def quaternion_to_axis_angle(quaternions):
     """
     norms = torch.norm(quaternions[..., 1:], p=2, dim=-1, keepdim=True)
     half_angles = torch.atan2(norms, quaternions[..., :1])
-    angles = 2 * half_angles
-    eps = 1e-6
-    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
-    # so sin(x/2)/x is about 1/2 - (x*x)/48
-    small_theta = 0.5 - (angles * angles) / 48
-    large_theta = torch.sin(half_angles) / angles
-    sin_half_angles_over_angles = torch.where(angles.abs() < eps, small_theta, large_theta)
+    sin_half_angles_over_angles = 0.5 * torch.sinc(half_angles / torch.pi)
     return quaternions[..., 1:] / sin_half_angles_over_angles
 
 
