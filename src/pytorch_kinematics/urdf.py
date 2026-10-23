@@ -58,9 +58,13 @@ def _build_chain_recurse(root_frame, lmap, joints):
                 effort_limits = (-j.limit.effort, j.limit.effort)
             except AttributeError:
                 effort_limits = None
+            axis = j.axis
+            if axis is None and j.type != 'fixed':
+                # URDF defaults movable joint axes to X, unlike the generic Joint default.
+                axis = (1.0, 0.0, 0.0)
             child_frame = frame.Frame(j.child)
             child_frame.joint = frame.Joint(j.name, offset=_convert_transform(j.origin),
-                                            joint_type=JOINT_TYPE_MAP[j.type], axis=j.axis, limits=limits,
+                                            joint_type=JOINT_TYPE_MAP[j.type], axis=axis, limits=limits,
                                             velocity_limits=velocity_limits, effort_limits=effort_limits)
             link = lmap[j.child]
             child_frame.link = frame.Link(link.name, offset=_convert_transform(link.origin),
