@@ -37,8 +37,10 @@ def _build_chain_recurse(m, parent_frame, parent_body):
             if n_joints == 1:
                 # Find the joint for this body, again assuming there's only one joint per body.
                 joint = m.joint(body.jntadr[0])
-                joint_offset = tf.Transform3d(pos=joint.pos)
-                child_joint = frame.Joint(joint.name, offset=joint_offset, axis=joint.axis,
+                # A hinge's pos is its pivot within the body frame. A slide's
+                # pos has no effect on the body's kinematics in MuJoCo.
+                pivot = joint.pos if joint.type[0] == mujoco.mjtJoint.mjJNT_HINGE else (0.0, 0.0, 0.0)
+                child_joint = frame.Joint(joint.name, axis=joint.axis, pivot=pivot,
                                           joint_type=JOINT_TYPE_MAP[joint.type[0]],
                                           limits=(joint.range[0], joint.range[1]))
             else:

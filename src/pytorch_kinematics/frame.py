@@ -42,11 +42,18 @@ class Link(object):
 
 
 class Joint(object):
+    """A one-DOF or fixed joint connecting frames.
+
+    ``offset`` is applied before joint motion. ``pivot`` is the point about
+    which a revolute joint rotates, expressed in child link coordinates and
+    the same length units as the link offsets (meters for MJCF). It defaults
+    to the child link origin and is ignored for fixed and prismatic joints.
+    """
     TYPES = ['fixed', 'revolute', 'prismatic']
 
     def __init__(self, name=None, offset=None, joint_type='fixed', axis=(0.0, 0.0, 1.0),
                  dtype=torch.float32, device="cpu", limits=None,
-                 velocity_limits=None, effort_limits=None):
+                 velocity_limits=None, effort_limits=None, pivot=(0.0, 0.0, 0.0)):
         if offset is None:
             self.offset = None
         else:
@@ -64,6 +71,11 @@ class Joint(object):
                 self.axis = torch.tensor(axis, dtype=dtype, device=device)
         # normalize axis to have norm 1 (needed for correct representation scaling with theta)
         self.axis = self.axis / self.axis.norm()
+        # Revolute joint pivot in the child link frame. Unlike offset, this
+        # changes the point about which motion occurs, not the zero pose.
+        self.pivot = torch.as_tensor(pivot, dtype=dtype, device=device).clone().detach()
+        if self.pivot.shape != (3,):
+            raise ValueError("pivot must have shape (3,)")
 
         self.limits = limits
         self.velocity_limits = velocity_limits
@@ -71,6 +83,7 @@ class Joint(object):
 
     def to(self, *args, **kwargs):
         self.axis = self.axis.to(*args, **kwargs)
+        self.pivot = self.pivot.to(*args, **kwargs)
         if self.offset is not None:
             self.offset = self.offset.to(*args, **kwargs)
         return self
@@ -134,7 +147,8 @@ class Frame(object):
         d = self.joint.axis.device
         if self.joint.joint_type == 'revolute':
             rot = axis_and_angle_to_matrix_33(self.joint.axis, theta)
-            t = tf.Transform3d(rot=rot, dtype=dtype, device=d)
+            pos = self.joint.pivot - (rot @ self.joint.pivot.unsqueeze(-1)).squeeze(-1)
+            t = tf.Transform3d(rot=rot, pos=pos, dtype=dtype, device=d)
         elif self.joint.joint_type == 'prismatic':
             pos = theta.unsqueeze(1) * self.joint.axis
             t = tf.Transform3d(pos=pos, dtype=dtype, device=d)

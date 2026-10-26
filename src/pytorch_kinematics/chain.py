@@ -12,7 +12,7 @@ from pytorch_kinematics.transforms.rotation_conversions import axis_and_angle_to
 
 def _fk_impl(th, static_offsets, joint_indices_clamped, joint_type_indices,
              direct_parent_idx, bfs_levels, axes,
-             has_revolute, has_prismatic, num_frames):
+             has_revolute, has_prismatic, num_frames, joint_pivots=None):
     """Batched forward kinematics: joint angles → world-frame transforms.
 
     Computes the 4x4 homogeneous world-frame transform for every frame in the
@@ -40,6 +40,7 @@ def _fk_impl(th, static_offsets, joint_indices_clamped, joint_type_indices,
         has_revolute: bool, whether any revolute joints exist
         has_prismatic: bool, whether any prismatic joints exist
         num_frames: int, total number of frames in the kinematic tree
+        joint_pivots: optional (n_joints, 3) revolute pivots in child link coordinates
 
     Returns:
         T_world_link: (num_frames, B, 4, 4) transforms from each link frame to world.
@@ -55,6 +56,14 @@ def _fk_impl(th, static_offsets, joint_indices_clamped, joint_type_indices,
         axes_expanded = axes.unsqueeze(0).expand(B, -1, -1)
         if has_revolute:
             rev_transforms = axis_and_angle_to_matrix_44(axes_expanded, th)
+            if joint_pivots is not None:
+                # T(p) R(q) T(-p): keep the body frame at its zero-pose
+                # origin while rotating it about a possibly displaced pivot.
+                rot = rev_transforms[..., :3, :3]
+                pos = joint_pivots - (rot @ joint_pivots.unsqueeze(-1)).squeeze(-1)
+                rev_transforms = torch.cat((
+                    torch.cat((rot, pos.unsqueeze(-1)), dim=-1),
+                    rev_transforms[..., 3:4, :]), dim=-2)
             rev_per_frame = rev_transforms[:, jidx].permute(1, 0, 2, 3)
         if has_prismatic:
             pris_transforms = axis_and_d_to_pris_matrix(axes_expanded, th)
@@ -113,22 +122,22 @@ class _FKAnalyticalBackward(torch.autograd.Function):
 
     where:
       T_world_link[l] has rotation R_l and translation t_l (link l's world-frame pose),
-      z_j = world-frame axis of DOF j,  o_j = world-frame origin of DOF j's link,
+      z_j = world-frame axis of DOF j,  o_j = world-frame pivot of DOF j,
       ∂L/∂R_l, ∂L/∂t_l = upstream gradients for link l's rotation and translation,
       τ_l = axial_vector(R_l @ (∂L/∂R_l)^T) captures the rotation gradient contribution,
       mask[j,l] = 1 if DOF j is an ancestor of link l (i.e., moving joint j moves link l).
     """
 
     @staticmethod
-    def forward(ctx, th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes):
+    def forward(ctx, th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes, joint_pivots):
         # No FK computation — just save what backward needs and pass through.
         ctx.save_for_backward(T_world_link, dof_frame_indices, dof_ancestor_mask,
-                              dof_is_revolute, axes)
+                              dof_is_revolute, axes, joint_pivots)
         return T_world_link
 
     @staticmethod
     def backward(ctx, grad_output):
-        T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes = \
+        T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes, joint_pivots = \
             ctx.saved_tensors
 
         # Per-link rotation and translation from FK output
@@ -150,6 +159,8 @@ class _FKAnalyticalBackward(torch.autograd.Function):
         T_dof = T_world_link[dof_frame_indices]  # (J, B, 4, 4)
         z_dof = (T_dof[:, :, :3, :3] @ axes.unsqueeze(-1).unsqueeze(1)).squeeze(-1)  # (J, B, 3)
         o_dof = T_dof[:, :, :3, 3]  # (J, B, 3)
+        if joint_pivots is not None:
+            o_dof = o_dof + (T_dof[:, :, :3, :3] @ joint_pivots[:, None, :, None]).squeeze(-1)
 
         # Weighted sums over descendant links via ancestor mask: (J, L) @ (L, B*3)
         L, B, _ = tau_link.shape
@@ -165,8 +176,8 @@ class _FKAnalyticalBackward(torch.autograd.Function):
 
         grad_th = torch.where(dof_is_revolute.unsqueeze(-1), rev_grad, pris_grad).T  # (B, J)
 
-        # Grads for: th, T_world_link, dof_frame_indices, dof_ancestor_mask, dof_is_revolute, axes
-        return (grad_th,) + (None,) * 5
+        # Geometry and cached tensors are constant; only return joint-value gradients.
+        return (grad_th,) + (None,) * 6
 
 
 def get_n_joints(th):
@@ -247,6 +258,7 @@ class Chain:
         self.joint_indices = []
         self.n_joints = len(self.get_joint_parameter_names())
         self.axes = torch.zeros([self.n_joints, 3], dtype=self.dtype, device=self.device)
+        self._joint_pivots = torch.zeros_like(self.axes)
         self.link_offsets = []
         self.joint_offsets = []
         self.joint_type_indices = []
@@ -286,6 +298,8 @@ class Chain:
             else:
                 jnt_idx = self.get_joint_parameter_names().index(root.joint.name)
                 self.axes[jnt_idx] = root.joint.axis
+                if root.joint.joint_type == 'revolute':
+                    self._joint_pivots[jnt_idx] = root.joint.pivot
                 self.joint_indices.append(jnt_idx)
 
             # these are integers so that we can use them as indices into tensors
@@ -327,6 +341,7 @@ class Chain:
         # Joint type flags for skipping unnecessary computation in FK
         self._has_revolute = bool((self.joint_type_indices == 1).any())
         self._has_prismatic = bool((self.joint_type_indices == 2).any())
+        self._has_joint_pivots = bool((self._joint_pivots != 0).any())
 
         # Analytical backward data: DOF-to-frame mapping and ancestor masks
         self._dof_frame_indices = torch.zeros(self.n_joints, dtype=torch.long, device=self.device)
@@ -359,6 +374,7 @@ class Chain:
         self.joint_type_indices = self.joint_type_indices.to(dtype=torch.long, device=self.device)
         self.joint_indices = self.joint_indices.to(dtype=torch.long, device=self.device)
         self.axes = self.axes.to(dtype=self.dtype, device=self.device)
+        self._joint_pivots = self._joint_pivots.to(dtype=self.dtype, device=self.device)
         self.link_offsets = [l if l is None else l.to(dtype=self.dtype, device=self.device) for l in self.link_offsets]
         self.joint_offsets = [j if j is None else j.to(dtype=self.dtype, device=self.device) for j in
                               self.joint_offsets]
@@ -521,23 +537,24 @@ class Chain:
 
         Returns: (num_frames, B, 4, 4) tensor of all frame transforms
         """
+        joint_pivots = self._joint_pivots if self._has_joint_pivots else None
         if th.requires_grad and analytical_grad:
             # Compute FK on detached th (no autograd graph needed for forward)
             T_world_link = _fk_impl(
                 th.detach(), self._static_offsets, self._joint_indices_clamped,
                 self.joint_type_indices, self._direct_parent_idx,
                 self._bfs_levels, self.axes,
-                self._has_revolute, self._has_prismatic, self._num_frames)
+                self._has_revolute, self._has_prismatic, self._num_frames, joint_pivots)
             # Attach analytical backward: connects T_world_link to th in the
             # autograd graph so that backprop uses the geometric Jacobian
             # instead of replaying the forward ops. No FK happens here.
             return _FKAnalyticalBackward.apply(
                 th, T_world_link, self._dof_frame_indices, self._dof_ancestor_mask,
-                self._dof_is_revolute, self.axes)
+                self._dof_is_revolute, self.axes, joint_pivots)
         return _fk_impl(th, self._static_offsets, self._joint_indices_clamped,
                         self.joint_type_indices, self._direct_parent_idx,
                         self._bfs_levels, self.axes,
-                        self._has_revolute, self._has_prismatic, self._num_frames)
+                        self._has_revolute, self._has_prismatic, self._num_frames, joint_pivots)
 
     def forward_kinematics(self, th, frame_indices: Optional = None):
         """
@@ -733,6 +750,8 @@ class SerialChain(Chain):
         T_dof = all_transforms[self._serial_dof_frame_indices]  # (ndof, B, 4, 4)
         R_dof = T_dof[:, :, :3, :3]  # (ndof, B, 3, 3)
         p_dof = T_dof[:, :, :3, 3]   # (ndof, B, 3)
+        if self._has_joint_pivots:
+            p_dof = p_dof + torch.einsum('nbij,nj->nbi', R_dof, self._joint_pivots)
 
         # Joint axes in base frame: z_i = R_i @ axis_i
         axes = self._serial_dof_axes  # (ndof, 3)
